@@ -5,6 +5,7 @@ import {
   SLIDERS,
   type FaceRegion,
   modelConfidence,
+  type CaptureSession,
   type SculptData,
   type SimulationVersion,
   type SliderId,
@@ -37,7 +38,8 @@ import { ConfirmDialog, Dialog } from '../../components/ui/Dialog';
 import { TextAreaField, TextField } from '../../components/ui/Field';
 import { ErrorState, Loading } from '../../components/ui/States';
 import { toast } from '../../components/ui/Toaster';
-import { errorMessage } from '../../lib/api';
+import { useQuery } from '@tanstack/react-query';
+import { api, errorMessage } from '../../lib/api';
 import { useAuth } from '../../lib/auth-store';
 import { cn, formatDateTime } from '../../lib/format';
 import { useReconstruction } from '../capture/queries';
@@ -46,7 +48,10 @@ import { brushTargets, PIXELS_PER_UNIT } from './brush';
 import { FaceViewer, type CompareMode, type ModelInfo, type SculptHandlers, type ViewerHandle, type ViewName } from './FaceViewer';
 import { apply, commit, emptyHistory, redo, regionHasChanges, resetRegion, setLive, undo, type History } from './history';
 import { logExport, useSaveVersion, useSimulation } from './queries';
+import { AppearancePanel } from './AppearancePanel';
+import { loadAppearance, saveAppearance, type Appearance } from './appearance';
 import { BrushPanel, DEFAULT_BRUSH, type BrushSettings } from './BrushPanel';
+import { colorsFromPhoto } from './photoColors';
 import type { SculptState } from './sculptRuntime';
 import { LowConfidenceScreen, NoWebglScreen } from './SimulatorStates';
 import { SliderControl } from './SliderControl';
@@ -106,6 +111,46 @@ export function SimulatorPage() {
   const [savedRevision, setSavedRevision] = useState(0);
   const [sculptData, setSculptData] = useState<SculptData | null>(null);
   const [sculptNonce, setSculptNonce] = useState(0);
+  const [appearance, setAppearance] = useState<Appearance>(() => loadAppearance(id));
+  const [photoBusy, setPhotoBusy] = useState(false);
+  useEffect(() => saveAppearance(id, appearance), [id, appearance]);
+  // A foto frontal (com os pontos do rosto) serve para tirar as cores. Só quem pode ver fotos a busca.
+  const capture = useQuery({
+    queryKey: ['captures', rec.data?.captureId ?? ''],
+    queryFn: () => api<CaptureSession>(`/captures/${rec.data!.captureId}`),
+    enabled: !!rec.data?.captureId && can(role, 'captures.read'),
+  });
+  const frontPhoto = capture.data?.photos.find((p) => p.angle === 'FRONT');
+
+  async function colorsFromFrontPhoto() {
+    if (!frontPhoto?.landmarks) return;
+    setPhotoBusy(true);
+    try {
+      // URLs do armazenamento local passam pelo mesmo domínio do app; assim a leitura dos pixels não é bloqueada.
+      const u = new URL(frontPhoto.url, window.location.href);
+      const blob = await (await fetch(u.pathname.startsWith('/api/') ? u.pathname + u.search : frontPhoto.url)).blob();
+      const bmp = await createImageBitmap(blob);
+      const scale = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(bmp.width * scale);
+      canvas.height = Math.round(bmp.height * scale);
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+      ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      const found = colorsFromPhoto(ctx.getImageData(0, 0, canvas.width, canvas.height), frontPhoto.landmarks);
+      setAppearance((a) => ({
+        ...a,
+        ...(found.skinHex ? { skinHex: found.skinHex } : {}),
+        ...(found.irisHex ? { irisHex: found.irisHex } : {}),
+        ...(found.hairHex ? { hairHex: found.hairHex, hairVisible: true } : {}),
+      }));
+      if (found.skinHex || found.irisHex || found.hairHex) toast.ok('Cores tiradas da foto. Confira e ajuste se precisar.');
+      for (const n of found.notes) toast.error(n);
+    } catch {
+      toast.error('Não foi possível ler a foto. Escolha as cores à mão.');
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
   const webgl = useMemo(() => {
     try {
       const c = document.createElement('canvas');
@@ -224,6 +269,7 @@ export function SimulatorPage() {
           sculptData={sculptData}
           sculptNonce={sculptNonce}
           onSculptChange={setSculptState}
+          appearance={appearance}
         />
         {!info && (
           <div className="absolute inset-0 flex items-center justify-center">
@@ -312,6 +358,7 @@ export function SimulatorPage() {
             onClear={() => viewer.current?.clearSculpt()}
           />
         )}
+        <AppearancePanel value={appearance} onChange={setAppearance} onFromPhoto={canWrite ? colorsFromFrontPhoto : undefined} photoBusy={photoBusy} photoAvailable={!!frontPhoto?.landmarks} />
         <div className="mb-1 flex items-center justify-between">
           <h2 className="font-semibold">{preset.label}</h2>
           {regionsInPreset.some((rg) => regionHasChanges(history.live, rg)) && (

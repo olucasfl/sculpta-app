@@ -106,6 +106,8 @@ export interface CapturePhoto {
   createdAt: string;
   /** URL de leitura de curta duração. */
   url: string;
+  /** Pontos do rosto (MediaPipe, normalizados). Só na vista frontal; usados para tirar cores da foto. */
+  landmarks?: [number, number, number][] | null;
 }
 
 export const ReconstructionStatus = z.enum(['QUEUED', 'PROCESSING', 'DONE', 'FAILED']);

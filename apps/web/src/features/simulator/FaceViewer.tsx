@@ -3,8 +3,11 @@ import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import type { FaceRegion, SculptData, SimulationParams } from '@sim/contracts';
 import { forwardRef, Suspense, type ComponentRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { DEFAULT_APPEARANCE, irisColor, skinColor, type Appearance } from './appearance';
+import { BrowsAndLashes, Eyes, Hair } from './FaceExtras';
 import type { BrushParams } from './sculpt';
 import { createSculptRuntime, type SculptRuntime, type SculptState } from './sculptRuntime';
+import { applySkinShader } from './skinShader';
 
 export type CompareMode = 'off' | 'curtain' | 'side' | 'hold';
 export type ViewName = 'FRONT' | 'LEFT_45' | 'RIGHT_45' | 'LEFT_90' | 'RIGHT_90';
@@ -72,6 +75,8 @@ interface Props {
   sculptData?: SculptData | null;
   sculptNonce?: number;
   onSculptChange?: (state: SculptState) => void;
+  /** Cor da pele, olhos, cabelo e modo leve. */
+  appearance?: Appearance;
 }
 
 export interface SculptHandlers {
@@ -86,10 +91,12 @@ interface Shared {
   current: number[];
   zeros: number[];
   sculpt: SculptRuntime | null;
+  /** Cor da pele atual (a exportação usa a mesma, sem destaque de região). */
+  skin: THREE.Color;
 }
 
 export const FaceViewer = forwardRef<ViewerHandle, Props>(function FaceViewer(props, ref) {
-  const shared = useRef<Shared>({ mesh: null, current: [], zeros: [], sculpt: null });
+  const shared = useRef<Shared>({ mesh: null, current: [], zeros: [], sculpt: null, skin: new THREE.Color(SKIN) });
   const api = useRef<Pick<ViewerHandle, 'snapshot'> | null>(null);
   useImperativeHandle(ref, () => ({
     snapshot: (o) => api.current?.snapshot(o) ?? '',
@@ -139,8 +146,12 @@ function FaceModel({
   sculptData,
   sculptNonce,
   onSculptChange,
+  appearance,
   shared,
 }: Props & { shared: React.RefObject<Shared> }) {
+  const look = appearance ?? DEFAULT_APPEARANCE;
+  const skinHex = skinColor(look);
+  const skinMix = useRef({ value: 1 }).current;
   const gltf = useGLTF(url);
   const invalidate = useThree((s) => s.invalidate);
   const gl = useThree((s) => s.gl);
@@ -171,9 +182,12 @@ function FaceModel({
       sheen: 0.35,
       sheenRoughness: 0.8,
       sheenColor: new THREE.Color('#f0d2c0'),
+      clearcoat: 0.1,
+      clearcoatRoughness: 0.45,
     });
     const runtime = createSculptRuntime(geometry, (st) => changeRef.current?.(st), invalidate);
     runtime?.patchMaterial(material);
+    applySkinShader(material, skinMix);
     const m = new THREE.Mesh(geometry, material);
     m.morphTargetDictionary = { ...(src.morphTargetDictionary ?? {}) };
     m.morphTargetInfluences = new Array(Object.keys(m.morphTargetDictionary).length).fill(0);
@@ -229,13 +243,27 @@ function FaceModel({
     invalidate();
   }, [mesh, params, shared, invalidate]);
 
+  // Pele: modo leve desliga poros e brilho; a cor da pele vale também na exportação.
+  useEffect(() => {
+    skinMix.value = look.light ? 0 : 1;
+    const mat = mesh.material as THREE.MeshPhysicalMaterial;
+    const coat = look.light ? 0 : 0.1;
+    if (mat.clearcoat !== coat) {
+      mat.clearcoat = coat;
+      mat.needsUpdate = true;
+    }
+    shared.current.skin.set(skinHex);
+    invalidate();
+  }, [mesh, look.light, skinHex, skinMix, shared, invalidate]);
+
   // Destaque de região por cor de vértice.
   useEffect(() => {
     const color = mesh.geometry.getAttribute('color') as THREE.BufferAttribute;
+    const base = new THREE.Color(skinHex);
     const c = new THREE.Color();
     const tints = Object.fromEntries(REGIONS.map((r) => [r, new THREE.Color(REGION_TINT[r])])) as Record<FaceRegion, THREE.Color>;
     for (let v = 0; v < color.count; v++) {
-      c.copy(SKIN);
+      c.copy(base);
       if (showRegions) {
         for (const [r, a] of regionAttrs) {
           const w = a.getX(v);
@@ -252,7 +280,7 @@ function FaceModel({
     }
     color.needsUpdate = true;
     invalidate();
-  }, [mesh, regionAttrs, highlight, hover, showRegions, invalidate]);
+  }, [mesh, regionAttrs, highlight, hover, showRegions, skinHex, invalidate]);
 
   useEffect(() => {
     if (!sculpt) setHover(null);
@@ -479,12 +507,11 @@ function FaceModel({
         <ringGeometry args={[0.9, 1, 56]} />
         <meshBasicMaterial color="#0f8f89" transparent opacity={0.95} depthTest={false} side={THREE.DoubleSide} />
       </mesh>
-      {eyes?.centers.map((p, i) => (
-        <mesh key={i} position={p}>
-          <sphereGeometry args={[eyes.radius, 32, 24]} />
-          <meshPhysicalMaterial color="#2b2622" roughness={0.15} clearcoat={1} />
-        </mesh>
-      ))}
+      {eyes && <Eyes eyes={eyes} irisHex={irisColor(look)} />}
+      {eyes && <BrowsAndLashes head={mesh} eyes={eyes} browHex={look.browHex} />}
+      {look.hairVisible && (
+        <Hair head={mesh} params={{ volume: look.hairVolume, length: look.hairLength, hairline: look.hairline, eyeY: eyes?.centers[0]?.[1] }} hex={look.hairHex} />
+      )}
     </group>
   );
 }
@@ -535,7 +562,7 @@ function Rig({
         if (material) {
           material.vertexColors = false;
           material.wireframe = false;
-          material.color.copy(SKIN);
+          material.color.copy(shared.current.skin);
           material.needsUpdate = true;
         }
         const ringObj = scene.getObjectByName('brush-ring');

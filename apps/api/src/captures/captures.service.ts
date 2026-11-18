@@ -242,6 +242,7 @@ export class CapturesService {
           validation: p.validation,
           createdAt: p.createdAt.toISOString(),
           url: await this.storage.presign(p.storageKey, { method: 'GET' }),
+          ...(p.angle === 'FRONT' ? { landmarks: (p.landmarks as [number, number, number][] | null) ?? null } : {}),
         })),
     );
     return {

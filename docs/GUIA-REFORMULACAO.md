@@ -302,6 +302,13 @@ E0 Fundação ─► E1 Design + telas de gestão ─► E1B Contas, clínicas e
 
 **Risco:** o segmentador de cabelo do MediaPipe tem [bug conhecido na GPU do iOS Safari](https://github.com/google-ai-edge/mediapipe/issues/6142) → usar CPU nesse caso e testar o rótulo da máscara. Cabelo "fiel" não será entregue aqui (seção 6.5).
 
+**Entregue / Fora desta entrega (honesto, 18/11/2026)**
+- Entregue: pele com poros procedurais, brilho leve e borda "translúcida" aproximada; olho em camadas (esclera, íris com textura, córnea); sobrancelhas e cílios como tubos finos assentados na malha; cabelo como molde (casca com linha do cabelo medida a partir dos olhos, volume, comprimento e entradas); cores tiradas da foto frontal pelos pontos do rosto (pele, íris, cabelo) com aviso quando não dá; modo leve; painel Aparência.
+- Fora: **cabelo fio a fio** (é um molde, não segmentação nem fios); **SSAO e detecção automática de aparelho fraco** (só a chave manual "Modo leve"); **íris recortada da foto** (a cor sai da foto, a textura é procedural); **subsurface real** (é aproximação por borda).
+- A aparência **fica no navegador (localStorage), por simulação**; não vai na versão salva nem na exportação, exceto a cor da pele.
+- A leitura de cores da foto tem teste unitário com imagens sintéticas; **não foi testada com fotos reais** (luz colorida, maquiagem e fundo claro enganam a amostragem).
+- Desempenho (fps) **não medido** em tablet.
+
 ---
 
 ### Etapa 4 — Captura guiada, foto automática e vídeo  (G)

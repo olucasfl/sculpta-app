@@ -90,3 +90,32 @@ test('modos: Regiões e Girar escondem o painel do pincel', async ({ page }, inf
   await page.getByRole('button', { name: 'Pincel', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Pincel de escultura' })).toBeVisible();
 });
+
+test('aparência: pele, olhos, cabelo e sobrancelhas aparecem; controles mudam o resultado', async ({ page }, info) => {
+  test.setTimeout(150000);
+  test.skip(info.project.name !== 'desktop-1440x900');
+  await openSimulator(page);
+  const dir = join('e2e', 'screenshots', info.project.name);
+  mkdirSync(dir, { recursive: true });
+  const panel = page.getByRole('group', { name: 'Vistas' });
+  await expect(page.getByText('Aparência', { exact: true })).toBeVisible();
+  await page.screenshot({ path: join(dir, '30-aparencia-frente.png') });
+  await panel.getByRole('button', { name: '45° esq.' }).click();
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: join(dir, '31-aparencia-45.png') });
+  await panel.getByRole('button', { name: 'Perfil esq.' }).click();
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: join(dir, '32-aparencia-perfil.png') });
+  // Cabelo mais longo e olho azul, e esconde o cabelo.
+  await panel.getByRole('button', { name: 'Frente' }).click();
+  await page.getByRole('button', { name: 'Azul' }).click();
+  await page.getByLabel('Comprimento').fill('0.9');
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: join(dir, '33-aparencia-olho-azul-cabelo-longo.png') });
+  const hair = page.getByRole('checkbox', { name: 'Mostrar' });
+  await hair.uncheck({ force: true });
+  await expect(page.getByLabel('Comprimento')).toHaveCount(0);
+  await page.getByRole('checkbox', { name: /Modo leve/ }).check();
+  await page.waitForTimeout(3000);
+  await page.screenshot({ path: join(dir, '34-aparencia-sem-cabelo-modo-leve.png') });
+});
