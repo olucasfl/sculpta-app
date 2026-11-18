@@ -69,15 +69,44 @@ export async function startHarness(opts: { env?: Record<string, string>; listen?
 
 export type Harness = Awaited<ReturnType<typeof startHarness>>;
 
-export async function seedClinic(h: Harness, name: string) {
+export type TestRole = 'OWNER' | 'GERENTE' | 'PROFISSIONAL' | 'AUXILIAR' | 'RECEPCAO' | 'VISUALIZADOR';
+
+/** Cria uma conta (global) e, se `clinicId` e `role` vierem, o vínculo com a clínica. */
+export async function makeUser(
+  h: Harness,
+  email: string,
+  opts: { clinicId?: string; role?: TestRole; platformAdmin?: boolean } = {},
+) {
   const passwordHash = await hashPassword(PASSWORD);
+  const user = await h.prisma.user.create({
+    data: {
+      email,
+      name: email.split('@')[0]!,
+      passwordHash,
+      emailVerifiedAt: new Date(),
+      isPlatformAdmin: opts.platformAdmin ?? false,
+    },
+  });
+  if (opts.clinicId && opts.role) {
+    await h.prisma.membership.create({ data: { userId: user.id, clinicId: opts.clinicId, role: opts.role } });
+  }
+  return user;
+}
+
+/** Uma clínica com um membro de cada papel. `admin` é a dona (OWNER). */
+export async function seedClinic(h: Harness, name: string) {
   const clinic = await h.prisma.clinic.create({ data: { name } });
   const slug = name.toLowerCase().replace(/\W+/g, '');
-  const mk = (role: 'ADMIN' | 'PROFISSIONAL' | 'RECEPCAO') =>
-    h.prisma.user.create({
-      data: { clinicId: clinic.id, role, name: `${role} ${name}`, email: `${role.toLowerCase()}@${slug}.test`, passwordHash },
-    });
-  return { clinic, admin: await mk('ADMIN'), pro: await mk('PROFISSIONAL'), recep: await mk('RECEPCAO') };
+  const mk = (role: TestRole) => makeUser(h, `${role.toLowerCase()}@${slug}.test`, { clinicId: clinic.id, role });
+  return {
+    clinic,
+    admin: await mk('OWNER'),
+    pro: await mk('PROFISSIONAL'),
+    recep: await mk('RECEPCAO'),
+    gerente: await mk('GERENTE'),
+    aux: await mk('AUXILIAR'),
+    viewer: await mk('VISUALIZADOR'),
+  };
 }
 
 export async function login(h: Harness, email: string) {
@@ -87,7 +116,11 @@ export async function login(h: Harness, email: string) {
   return { token: res.body.accessToken as string, cookie: cookie!.split(';')[0]!, body: res.body };
 }
 
-export const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
+/** Cabeçalhos de uma chamada autenticada; `clinicId` vai em X-Clinic-Id (obrigatório para quem tem 2+ clínicas). */
+export const auth = (token: string, clinicId?: string) => ({
+  Authorization: `Bearer ${token}`,
+  ...(clinicId ? { 'X-Clinic-Id': clinicId } : {}),
+});
 
 /** PNG 1x1 válido, maior que o mínimo exigido, para simular uma assinatura. */
 export const SIGNATURE =

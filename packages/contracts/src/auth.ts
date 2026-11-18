@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Role } from './roles.js';
+import { ClinicRole } from './roles.js';
 
 export const LoginRequest = z.object({
   email: z.string().trim().toLowerCase().pipe(z.email('E-mail inválido')),
@@ -7,13 +7,32 @@ export const LoginRequest = z.object({
 });
 export type LoginRequest = z.infer<typeof LoginRequest>;
 
+/** Cabeçalho que diz em qual clínica a requisição age. A API valida contra o vínculo a cada chamada. */
+export const CLINIC_HEADER = 'x-clinic-id';
+
+/** Uma clínica em que a pessoa tem vínculo ativo. */
+export interface ClinicMembership {
+  id: string;
+  name: string;
+  role: ClinicRole;
+}
+
 export interface AuthUser {
   id: string;
   name: string;
   email: string;
-  role: Role;
-  clinicId: string;
-  clinicName: string;
+  isPlatformAdmin: boolean;
+  /** Todas as clínicas em que a pessoa tem vínculo ativo. */
+  clinics: ClinicMembership[];
+  /**
+   * Clínica ativa nesta resposta: a do cabeçalho `X-Clinic-Id` ou, se a pessoa tem uma só, essa.
+   * `null` quando há várias e nenhuma foi escolhida, ou nenhuma (aguardando convite).
+   */
+  clinicId: string | null;
+  clinicName: string | null;
+  role: ClinicRole | null;
+  /** Clínicas em que a pessoa acabou de entrar por convite (só em login e verificação de e-mail). */
+  joined?: ClinicMembership[];
 }
 
 export interface LoginResponse {
@@ -23,9 +42,7 @@ export interface LoginResponse {
   user: AuthUser;
 }
 
-/** Conteúdo do access token (JWT). `clinicId` sempre vem daqui, nunca do body. */
+/** Conteúdo do access token (JWT). A clínica NÃO vai no token: vem de `X-Clinic-Id`, validada pelo vínculo. */
 export interface AccessTokenPayload {
   sub: string;
-  clinicId: string;
-  role: Role;
 }

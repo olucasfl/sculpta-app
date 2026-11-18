@@ -1,10 +1,11 @@
 import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { LoginRequest } from '@sim/contracts';
+import { ChangePasswordRequest, CLINIC_HEADER, LoginRequest, SignupRequest } from '@sim/contracts';
 import type { Request, Response } from 'express';
-import { CurrentUser, Public, requestIp, type AuthContext } from '../common/auth-context.js';
+import { CurrentAccount, NoClinic, Public, requestIp, type AccountContext } from '../common/auth-context.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
+import { AccountsService } from './accounts.service.js';
 import { AuthService, type IssuedSession } from './auth.service.js';
 
 export const REFRESH_COOKIE = 'sim_rt';
@@ -14,6 +15,7 @@ const COOKIE_PATH = '/api/auth';
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
+    private readonly accounts: AccountsService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -30,13 +32,26 @@ export class AuthController {
     return this.send(res, await this.auth.login(body, requestIp(req)));
   }
 
+  /** Criar conta (já ativa; sem verificação de e-mail por enquanto). Entra direto, sem clínica, a menos que haja convite. */
+  @Public()
+  @Post('signup')
+  @HttpCode(201)
+  @Throttle({ default: { limit: () => Number(process.env.SIGNUP_RATE_LIMIT ?? 5), ttl: 60_000 } })
+  async signup(
+    @Body(new ZodPipe(SignupRequest)) body: SignupRequest,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return this.send(res, await this.accounts.signup(body, requestIp(req)));
+  }
+
   @Public()
   @Post('refresh')
   @HttpCode(200)
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     try {
-      return this.send(res, await this.auth.refresh(this.cookie(req)));
+      return this.send(res, await this.auth.refresh(this.cookie(req), this.clinic(req)));
     } catch (e) {
       this.clear(res);
       throw e;
@@ -51,9 +66,29 @@ export class AuthController {
     this.clear(res);
   }
 
+  /** A conta e as clínicas em que ela tem vínculo ativo (não exige clínica escolhida). */
   @Get('me')
-  me(@CurrentUser() me: AuthContext) {
-    return this.auth.me(me.userId);
+  @NoClinic()
+  me(@CurrentAccount() me: AccountContext, @Req() req: Request) {
+    return this.auth.me(me.userId, this.clinic(req));
+  }
+
+  /** Troca a senha e encerra as outras sessões (a atual continua). */
+  @Post('change-password')
+  @HttpCode(204)
+  @NoClinic()
+  async changePassword(
+    @CurrentAccount() me: AccountContext,
+    @Body(new ZodPipe(ChangePasswordRequest)) body: ChangePasswordRequest,
+    @Req() req: Request,
+  ) {
+    await this.accounts.changePassword(me.userId, body, me.ip, await this.auth.familyOf(this.cookie(req)));
+  }
+
+  private clinic(req: Request): string | undefined {
+    const v = req.headers[CLINIC_HEADER];
+    const id = Array.isArray(v) ? v[0] : v;
+    return id ? id.toLowerCase() : undefined;
   }
 
   private cookie(req: Request): string | undefined {

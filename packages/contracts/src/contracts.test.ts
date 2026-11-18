@@ -5,9 +5,13 @@ import {
   LoginRequest,
   PatientCreate,
   PatientUpdate,
+  PERMISSIONS,
   SimulationParams,
   can,
+  canAssignRole,
+  canManageMember,
   hasActiveSimulationConsent,
+  type Permission,
 } from './index.js';
 
 const signature = 'data:image/png;base64,iVBORw0KGgo=';
@@ -78,10 +82,53 @@ describe('hasActiveSimulationConsent', () => {
 });
 
 describe('permissões', () => {
-  it('só admin exclui paciente; recepção não exporta', () => {
-    expect(can('ADMIN', 'patients.delete')).toBe(true);
-    expect(can('PROFISSIONAL', 'patients.delete')).toBe(false);
-    expect(can('RECEPCAO', 'simulations.export')).toBe(false);
+  /**
+   * Matriz da seção 3.3 de docs/CONTAS-CLINICAS-PERMISSOES.md, escrita de novo aqui de propósito:
+   * se alguém mudar PERMISSIONS sem mudar o documento, este teste falha.
+   * Ordem das colunas: OWNER, GERENTE, PROFISSIONAL, AUXILIAR, RECEPCAO, VISUALIZADOR.
+   */
+  const ROLES = ['OWNER', 'GERENTE', 'PROFISSIONAL', 'AUXILIAR', 'RECEPCAO', 'VISUALIZADOR'] as const;
+  const MATRIX: Record<string, readonly [boolean, boolean, boolean, boolean, boolean, boolean]> = {
+    'patients.read': [true, true, true, true, true, true],
+    'patients.write': [true, true, true, true, true, false],
+    'patients.delete': [true, true, false, false, false, false],
+    'consents.write': [true, true, true, true, true, false],
+    'consents.revoke': [true, true, true, false, false, false],
+    'captures.write': [true, true, true, true, false, false],
+    'captures.read': [true, true, true, true, false, true],
+    'simulations.read': [true, true, true, true, false, true],
+    'simulations.write': [true, true, true, false, false, false],
+    'simulations.export': [true, true, true, false, false, false],
+    'reports.generate': [true, true, true, false, false, false],
+    'members.read': [true, true, false, false, false, false],
+    'members.manage': [true, true, false, false, false, false],
+    'members.manage_owner': [true, false, false, false, false, false],
+    'clinic.manage': [true, true, false, false, false, false],
+    'clinic.retention': [true, false, false, false, false, false],
+    'audit.read': [true, true, false, false, false, false],
+  };
+
+  it('cada permissão e cada papel batem com a matriz do documento', () => {
+    for (const [permission, row] of Object.entries(MATRIX)) {
+      ROLES.forEach((role, i) => {
+        expect(can(role, permission as Permission), `${role} × ${permission}`).toBe(row[i]);
+      });
+    }
+  });
+
+  it('não existe permissão fora da matriz', () => {
+    expect(Object.keys(PERMISSIONS).sort()).toEqual(Object.keys(MATRIX).sort());
+  });
+
+  it('dona mexe em qualquer um; gerente não mexe em dona nem concede papel de dona', () => {
+    expect(canManageMember('OWNER', 'OWNER')).toBe(true);
+    expect(canManageMember('GERENTE', 'OWNER')).toBe(false);
+    expect(canManageMember('GERENTE', 'RECEPCAO')).toBe(true);
+    expect(canManageMember('PROFISSIONAL', 'RECEPCAO')).toBe(false);
+    expect(canAssignRole('OWNER', 'OWNER')).toBe(true);
+    expect(canAssignRole('GERENTE', 'OWNER')).toBe(false);
+    expect(canAssignRole('GERENTE', 'GERENTE')).toBe(true);
+    expect(canAssignRole('RECEPCAO', 'VISUALIZADOR')).toBe(false);
   });
 });
 

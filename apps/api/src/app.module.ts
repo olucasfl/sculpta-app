@@ -5,6 +5,8 @@ import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { BiometricsModule } from './biometrics/biometric-purge.service.js';
 import { ClinicsModule } from './clinics/clinics.module.js';
+import { InvitationsModule } from './clinics/invitations.module.js';
+import { PlatformModule } from './platform/platform.module.js';
 import { Public } from './common/auth-context.js';
 import { JwtAuthGuard, PermissionsGuard } from './common/guards.js';
 import { HttpExceptionFilter } from './common/http-exception.filter.js';
@@ -42,6 +44,8 @@ class HealthController {
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 300 }]),
     AuthModule,
     ClinicsModule,
+    InvitationsModule,
+    PlatformModule,
     UsersModule,
     PatientsModule,
     ConsentsModule,

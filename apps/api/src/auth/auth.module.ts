@@ -1,8 +1,10 @@
 import { Global, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
+import { AccountsService } from './accounts.service.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
+import { InvitationActivationService } from './invitation-activation.service.js';
 
 @Global()
 @Module({
@@ -17,7 +19,7 @@ import { AuthService } from './auth.service.js';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [AuthService, AccountsService, InvitationActivationService],
   exports: [JwtModule],
 })
 export class AuthModule {}

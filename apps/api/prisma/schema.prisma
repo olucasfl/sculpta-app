@@ -15,10 +15,41 @@ datasource db {
   provider = "postgresql"
 }
 
+/// Papel ANTIGO (um por usuário). Só existe até a fase "contrair" da migração para vínculos;
+/// o código novo usa ClinicRole em Membership.
 enum Role {
   ADMIN
   PROFISSIONAL
   RECEPCAO
+}
+
+/// Papel da pessoa dentro de UMA clínica (docs/CONTAS-CLINICAS-PERMISSOES.md).
+enum ClinicRole {
+  OWNER
+  GERENTE
+  PROFISSIONAL
+  AUXILIAR
+  RECEPCAO
+  VISUALIZADOR
+}
+
+enum ClinicStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_DELETION
+}
+
+enum MembershipStatus {
+  ACTIVE
+  SUSPENDED
+  REMOVED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
 }
 
 enum ConsentScope {
@@ -65,33 +96,103 @@ enum ReconstructionSource {
 }
 
 model Clinic {
-  id            String   @id @default(uuid()) @db.Uuid
-  name          String
-  cnpj          String?  @unique
-  retentionDays Int      @default(1825) @map("retention_days")
-  createdAt     DateTime @default(now()) @map("created_at")
+  id                  String       @id @default(uuid()) @db.Uuid
+  name                String
+  cnpj                String?      @unique
+  retentionDays       Int          @default(1825) @map("retention_days")
+  status              ClinicStatus @default(ACTIVE)
+  logoKey             String?      @map("logo_key")
+  /// Preenchido ao agendar a exclusão; o expurgo roda depois da carência.
+  deletionScheduledAt DateTime?    @map("deletion_scheduled_at")
+  createdById         String?      @map("created_by_id") @db.Uuid
+  createdAt           DateTime     @default(now()) @map("created_at")
 
-  users    User[]
-  patients Patient[]
+  /// LEGADO: usuários com clinic_id (um por conta). Substituído por memberships.
+  users       User[]
+  memberships Membership[]
+  invitations Invitation[]
+  patients    Patient[]
 
   @@map("clinics")
 }
 
+/// CONTA (pessoa). Não pertence a uma clínica: o acesso vem dos vínculos (Membership).
+/// Com o Supabase Auth, `id` é o id da conta lá e `passwordHash` fica vazio.
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
-  clinicId     String   @map("clinic_id") @db.Uuid
-  clinic       Clinic   @relation(fields: [clinicId], references: [id])
-  name         String
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  role         Role
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now()) @map("created_at")
+  id              String    @id @default(uuid()) @db.Uuid
+  name            String
+  /// Sempre minúsculo.
+  email           String    @unique
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  isPlatformAdmin Boolean   @default(false) @map("is_platform_admin")
+  active          Boolean   @default(true)
+  lastLoginAt     DateTime? @map("last_login_at")
+  /// Só no provedor de identidade local (desenvolvimento e testes).
+  passwordHash    String?   @map("password_hash")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  /// LEGADO (fase "expandir"): substituídos por Membership. Serão removidos na fase "contrair".
+  clinicId String? @map("clinic_id") @db.Uuid
+  clinic   Clinic? @relation(fields: [clinicId], references: [id])
+  role     Role?
 
   refreshTokens RefreshToken[]
+  memberships   Membership[]
 
   @@index([clinicId])
   @@map("users")
+}
+
+/// VÍNCULO: conta × clínica × papel. Todo acesso a dados de clínica passa por um vínculo ativo.
+model Membership {
+  id          String           @id @default(uuid()) @db.Uuid
+  userId      String           @map("user_id") @db.Uuid
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clinicId    String           @map("clinic_id") @db.Uuid
+  clinic      Clinic           @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  role        ClinicRole
+  status      MembershipStatus @default(ACTIVE)
+  invitedById String?          @map("invited_by_id") @db.Uuid
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([userId, clinicId])
+  @@index([clinicId, status])
+  @@map("memberships")
+}
+
+/// CONVITE por e-mail. Só vale quando o e-mail da conta está VERIFICADO e coincide.
+/// Um convite PENDENTE por e-mail/clínica: índice único parcial criado na migração.
+model Invitation {
+  id           String           @id @default(uuid()) @db.Uuid
+  clinicId     String           @map("clinic_id") @db.Uuid
+  clinic       Clinic           @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  email        String
+  role         ClinicRole
+  status       InvitationStatus @default(PENDING)
+  invitedById  String           @map("invited_by_id") @db.Uuid
+  expiresAt    DateTime         @map("expires_at")
+  acceptedAt   DateTime?        @map("accepted_at")
+  acceptedById String?          @map("accepted_by_id") @db.Uuid
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  @@index([email, status])
+  @@index([clinicId, status])
+  @@map("invitations")
+}
+
+/// MODO SUPORTE: janela em que o administrador da plataforma entra em uma clínica, com motivo.
+model SupportAccess {
+  id        String    @id @default(uuid()) @db.Uuid
+  adminId   String    @map("admin_id") @db.Uuid
+  clinicId  String    @map("clinic_id") @db.Uuid
+  reason    String
+  startedAt DateTime  @default(now()) @map("started_at")
+  expiresAt DateTime  @map("expires_at")
+  endedAt   DateTime? @map("ended_at")
+
+  @@index([clinicId, expiresAt])
+  @@map("support_access")
 }
 
 /// Refresh token rotativo. Guardamos só o hash. Reuso de um token já rotacionado
@@ -258,7 +359,8 @@ model SimulationVersion {
 
 model AuditLog {
   id        String   @id @default(uuid()) @db.Uuid
-  clinicId  String   @map("clinic_id") @db.Uuid
+  /// Nulo nos eventos da plataforma (criar clínica, login sem clínica etc.).
+  clinicId  String?  @map("clinic_id") @db.Uuid
   userId    String?  @map("user_id") @db.Uuid
   action    String
   entity    String

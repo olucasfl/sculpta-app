@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "dev": "nest start --watch",
+    "dev": "tsc -p tsconfig.build.json && node --env-file=.env dist/main.js",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
@@ -14,6 +14,7 @@
     "db:setup": "prisma migrate deploy && tsx prisma/seed.ts",
     "db:migrate:diff": "prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script",
     "db:seed": "tsx prisma/seed.ts",
+    "admin:create": "tsx src/cli/admin-create.ts",
     "generate": "prisma generate",
     "postinstall": "prisma generate"
   },

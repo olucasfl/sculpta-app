@@ -178,13 +178,13 @@ export class SimulationsController {
   }
 
   @Get('simulations')
-  @RequirePermission('patients.read')
+  @RequirePermission('simulations.read')
   list(@CurrentUser() me: AuthContext, @Query(new ZodPipe(ListQuery)) q: z.infer<typeof ListQuery>) {
     return this.simulations.list(me.clinicId, q.patientId);
   }
 
   @Get('simulations/:id')
-  @RequirePermission('patients.read')
+  @RequirePermission('simulations.read')
   get(@CurrentUser() me: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
     return this.simulations.get(me, id);
   }

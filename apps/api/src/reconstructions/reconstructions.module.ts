@@ -37,7 +37,7 @@ export class ReconstructionsController {
   constructor(private readonly reconstructions: ReconstructionsService) {}
 
   @Get(':id')
-  @RequirePermission('patients.read')
+  @RequirePermission('captures.read')
   get(@CurrentUser() me: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
     return this.reconstructions.get(me, id);
   }

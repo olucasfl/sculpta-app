@@ -53,8 +53,22 @@ export type AppConfig = z.infer<typeof EnvSchema>;
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
 
+/**
+ * `DB_TARGET=supabase` aponta a API para o banco real (pooler em modo sessão: aceita migrations e
+ * statements preparados). O padrão `local` usa DATABASE_URL (PGlite ou Postgres do compose).
+ * O host "direct" do Supabase é só IPv6 e não resolve em redes sem IPv6; por isso não é o padrão.
+ */
+export function resolveDatabaseUrl(env: NodeJS.ProcessEnv): string | undefined {
+  if (env.DB_TARGET === 'supabase') {
+    const url = env.SUPABASE_DB_SESSION_URL;
+    if (!url) throw new Error('DB_TARGET=supabase exige SUPABASE_DB_SESSION_URL');
+    return url;
+  }
+  return env.DATABASE_URL;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const parsed = EnvSchema.safeParse(env);
+  const parsed = EnvSchema.safeParse({ ...env, DATABASE_URL: resolveDatabaseUrl(env) });
   if (!parsed.success) {
     const lines = parsed.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`);
     throw new Error(`Configuração inválida:\n${lines.join('\n')}`);

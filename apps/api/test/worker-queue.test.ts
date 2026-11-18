@@ -59,19 +59,19 @@ afterAll(async () => {
 });
 
 async function completedCapture() {
-  const p = await h.http().post('/api/patients').set(auth(tok.recep)).send({ name: 'Paciente Worker' }).expect(201);
-  await h.http().post(`/api/patients/${p.body.id}/consents`).set(auth(tok.recep)).send({
+  const p = await h.http().post('/api/patients').set(auth(tok.pro)).send({ name: 'Paciente Worker' }).expect(201);
+  await h.http().post(`/api/patients/${p.body.id}/consents`).set(auth(tok.pro)).send({
     termVersion: CURRENT_TERM.version, scopes: ['SIMULATION'], signerName: 'Paciente Worker', signerRelation: 'PACIENTE', signatureDataUrl: SIGNATURE,
   }).expect(201);
-  const s = await h.http().post(`/api/patients/${p.body.id}/captures`).set(auth(tok.recep)).expect(201);
+  const s = await h.http().post(`/api/patients/${p.body.id}/captures`).set(auth(tok.pro)).expect(201);
   for (const a of PhotoAngle.options) {
-    const t = await h.http().post(`/api/captures/${s.body.id}/uploads/${a}`).set(auth(tok.recep)).expect(200);
+    const t = await h.http().post(`/api/captures/${s.body.id}/uploads/${a}`).set(auth(tok.pro)).expect(200);
     await h.http().put(t.body.url).set('Content-Type', 'image/jpeg').send(Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(256)])).expect(200);
-    await h.http().put(`/api/captures/${s.body.id}/photos/${a}`).set(auth(tok.recep)).send({
+    await h.http().put(`/api/captures/${s.body.id}/photos/${a}`).set(auth(tok.pro)).send({
       key: t.body.key, width: 1000, height: 1000, yawDeg: 0, sharpness: 100, faceDetected: true, faceHeightRatio: 0.5, validation: 'AUTO', source: 'UPLOAD',
     }).expect(200);
   }
-  const rec = await h.http().post(`/api/captures/${s.body.id}/complete`).set(auth(tok.recep)).expect(200);
+  const rec = await h.http().post(`/api/captures/${s.body.id}/complete`).set(auth(tok.pro)).expect(200);
   expect(rec.body.source).toBe('VGGTFACE');
   return rec.body.id as string;
 }

@@ -70,7 +70,7 @@ export class RetentionController {
   /** Roda o expurgo agora (além da rotina diária). */
   @Post('run')
   @HttpCode(200)
-  @RequirePermission('clinic.manage')
+  @RequirePermission('clinic.retention')
   async run(@CurrentUser() me: AuthContext) {
     return { purgedPatients: await this.retention.runForClinic(me.clinicId, me.userId, me.ip) };
   }

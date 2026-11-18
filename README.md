@@ -49,6 +49,18 @@ e no `apps/api/.env`: `WORKER_URL=http://127.0.0.1:8000` e o mesmo `WORKER_SECRE
 
 **Modelo do MediaPipe.** Por padrão o navegador baixa o `face_landmarker.task` oficial do Google (só o modelo; nenhuma foto sai do aparelho). Para servir localmente: `pnpm --filter @sim/web setup:model`.
 
+## Banco real (Supabase) e primeiro administrador
+
+`apps/api/.env` (ignorado pelo git) guarda as strings do Supabase. `DB_TARGET=supabase` aponta a API para o banco real; `DB_TARGET=local` usa o PGlite. As migrações foram aplicadas no Supabase com `DB_TARGET=supabase pnpm --filter @sim/api exec prisma migrate deploy` (4 migrações, RLS ligada em todas as tabelas). O seed de demonstração **não roda** no banco real.
+
+Para criar a conta de administrador da plataforma (a senha é pedida sem aparecer na tela):
+
+```bash
+pnpm --filter @sim/api admin:create -- --email voce@exemplo.com --name "Seu Nome"
+```
+
+Depois: entre em `/login`, abra **Plataforma → Nova clínica**, informe o e-mail da dona e avise-a para **criar a conta com esse e-mail** em `/cadastro`; ela cai na clínica sozinha e convida a equipe em **Configurações → Usuários**. Não há e-mail real, verificação de e-mail nem recuperação de senha por enquanto (o mesmo comando redefine a senha de qualquer conta).
+
 ## Com Docker
 
 ```bash

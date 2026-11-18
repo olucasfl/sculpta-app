@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   CanActivate,
   ExecutionContext,
   ForbiddenException,
@@ -7,14 +8,26 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { can, type AccessTokenPayload, type Permission } from '@sim/contracts';
+import { CLINIC_HEADER, can, type AccessTokenPayload, type Permission } from '@sim/contracts';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { IS_PUBLIC, REQUIRED_PERMISSION, requestIp, type AuthedRequest } from './auth-context.js';
+import {
+  IS_PUBLIC,
+  NO_CLINIC,
+  PLATFORM_ONLY,
+  REQUIRED_PERMISSION,
+  requestIp,
+  type AuthedRequest,
+} from './auth-context.js';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Guard global: toda rota exige access token, exceto as marcadas com @Public().
- * O papel e a clínica são relidos do banco, para que desativar um usuário ou mudar
- * o papel valha na hora, sem esperar o token expirar.
+ *
+ * A clínica ativa NÃO vem do token: vem do cabeçalho `X-Clinic-Id` e é validada a cada chamada
+ * contra um vínculo ATIVO no banco. Assim, suspender um vínculo, remover uma pessoa, mudar o papel
+ * ou suspender a clínica valem na hora, sem esperar o token expirar. Cabeçalho de clínica sem
+ * vínculo e clínica inexistente dão a MESMA resposta (não revela que a clínica existe).
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -25,11 +38,8 @@ export class JwtAuthGuard implements CanActivate {
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
-    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, [
-      ctx.getHandler(),
-      ctx.getClass(),
-    ]);
-    if (isPublic) return true;
+    const meta = [ctx.getHandler(), ctx.getClass()];
+    if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, meta)) return true;
 
     const req = ctx.switchToHttp().getRequest<AuthedRequest>();
     const header = req.headers.authorization ?? '';
@@ -45,13 +55,50 @@ export class JwtAuthGuard implements CanActivate {
 
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, clinicId: true, role: true, active: true },
+      select: { id: true, active: true, isPlatformAdmin: true },
     });
-    if (!user || !user.active || user.clinicId !== payload.clinicId) {
-      throw new UnauthorizedException('Usuário inativo');
+    if (!user || !user.active) throw new UnauthorizedException('Usuário inativo');
+
+    const ip = requestIp(req);
+    req.account = { userId: user.id, isPlatformAdmin: user.isPlatformAdmin, ip };
+
+    if (this.reflector.getAllAndOverride<boolean>(PLATFORM_ONLY, meta)) {
+      if (!user.isPlatformAdmin) throw new ForbiddenException('Apenas o administrador da plataforma');
+      return true;
+    }
+    if (this.reflector.getAllAndOverride<boolean>(NO_CLINIC, meta)) return true;
+
+    const memberships = await this.prisma.membership.findMany({
+      where: { userId: user.id, status: 'ACTIVE' },
+      select: { clinicId: true, role: true, clinic: { select: { status: true } } },
+    });
+
+    const wanted = req.headers[CLINIC_HEADER];
+    const wantedId = Array.isArray(wanted) ? wanted[0] : wanted;
+    let chosen: (typeof memberships)[number] | undefined;
+
+    if (wantedId) {
+      chosen = UUID.test(wantedId) ? memberships.find((m) => m.clinicId === wantedId.toLowerCase()) : undefined;
+      if (!chosen) throw new ForbiddenException({ code: 'CLINIC_FORBIDDEN', message: 'Sem acesso a esta clínica' });
+    } else if (memberships.length === 1) {
+      chosen = memberships[0];
+    } else if (memberships.length === 0) {
+      throw new ForbiddenException({ code: 'NO_CLINIC', message: 'Você ainda não foi adicionado a nenhuma clínica' });
+    } else {
+      throw new BadRequestException({ code: 'CLINIC_REQUIRED', message: 'Escolha a clínica (cabeçalho X-Clinic-Id)' });
     }
 
-    req.auth = { userId: user.id, clinicId: user.clinicId, role: user.role, ip: requestIp(req) };
+    if (chosen!.clinic.status !== 'ACTIVE') {
+      throw new ForbiddenException({ code: 'CLINIC_SUSPENDED', message: 'Esta clínica está suspensa' });
+    }
+
+    req.auth = {
+      userId: user.id,
+      clinicId: chosen!.clinicId,
+      role: chosen!.role,
+      isPlatformAdmin: user.isPlatformAdmin,
+      ip,
+    };
     return true;
   }
 }

@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import type { AuditAction, AuditEntry, Paginated, PageQuery } from '@sim/contracts';
-import type { AuthContext } from '../common/auth-context.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 type Tx = Pick<PrismaService, 'auditLog'>;
@@ -11,7 +10,7 @@ export class AuditService {
 
   /** Registra uma ação sensível. Aceita um client de transação para gravar junto com a mudança. */
   async log(
-    actor: Pick<AuthContext, 'clinicId' | 'ip'> & { userId: string | null },
+    actor: { clinicId: string | null; ip: string | null; userId: string | null },
     action: AuditAction,
     entity: string,
     entityId: string,

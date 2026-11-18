@@ -22,7 +22,11 @@ describe('auth', () => {
 
   it('login devolve access token, usuário e cookie httpOnly', async () => {
     const res = await h.http().post('/api/auth/login').send({ email: seed.admin.email.toUpperCase(), password: PASSWORD }).expect(200);
-    expect(res.body.user).toMatchObject({ email: seed.admin.email, role: 'ADMIN', clinicName: 'Clinica Auth' });
+    expect(res.body.user).toMatchObject({ email: seed.admin.email, role: 'OWNER', clinicName: 'Clinica Auth', clinicId: seed.clinic.id, isPlatformAdmin: false });
+    expect(res.body.user.clinics).toEqual([{ id: seed.clinic.id, name: 'Clinica Auth', role: 'OWNER' }]);
+    // O token não carrega clínica nem papel: isso vem do vínculo, a cada chamada.
+    const payload = JSON.parse(Buffer.from(res.body.accessToken.split('.')[1], 'base64url').toString());
+    expect(Object.keys(payload).sort()).toEqual(['exp', 'iat', 'sub']);
     expect(res.body.user).not.toHaveProperty('passwordHash');
     const cookie = String(res.headers['set-cookie']);
     expect(cookie).toMatch(/sim_rt=.+HttpOnly/);
@@ -61,18 +65,22 @@ describe('auth', () => {
     await h.http().post('/api/auth/refresh').set('Cookie', s.cookie).expect(401);
   });
 
-  it('usuário desativado perde o acesso na hora, mesmo com token válido', async () => {
+  it('membro suspenso perde o acesso à clínica na hora, mesmo com token válido', async () => {
     const admin = await login(h, seed.admin.email);
     const recep = await login(h, seed.recep.email);
-    await h.http().get('/api/auth/me').set(auth(recep.token)).expect(200);
+    await h.http().get('/api/patients').set(auth(recep.token)).expect(200);
     await h.http().patch(`/api/users/${seed.recep.id}`).set(auth(admin.token)).send({ active: false }).expect(200);
-    await h.http().get('/api/auth/me').set(auth(recep.token)).expect(401);
-    await h.http().post('/api/auth/refresh').set('Cookie', recep.cookie).expect(401);
+    const blocked = await h.http().get('/api/patients').set(auth(recep.token)).expect(403);
+    expect(blocked.body.code).toBe('NO_CLINIC');
+    // A conta continua ativa (só o vínculo com a clínica foi suspenso): vê que não tem clínicas.
+    const me = await h.http().get('/api/auth/me').set(auth(recep.token)).expect(200);
+    expect(me.body.clinics).toEqual([]);
   });
 
   it('admin não pode se rebaixar', async () => {
     const admin = await login(h, seed.admin.email);
     await h.http().patch(`/api/users/${seed.admin.id}`).set(auth(admin.token)).send({ role: 'RECEPCAO' }).expect(400);
+    await h.http().patch(`/api/users/${seed.admin.id}`).set(auth(admin.token)).send({ active: false }).expect(400);
   });
 
   it('login é limitado por IP', async () => {

@@ -24,26 +24,26 @@ export class CapturesController {
   constructor(private readonly captures: CapturesService) {}
 
   @Post('patients/:patientId/captures')
-  @RequirePermission('patients.write')
+  @RequirePermission('captures.write')
   create(@CurrentUser() me: AuthContext, @Param('patientId', ParseUUIDPipe) patientId: string) {
     return this.captures.create(me, patientId);
   }
 
   @Get('patients/:patientId/captures')
-  @RequirePermission('patients.read')
+  @RequirePermission('captures.read')
   list(@CurrentUser() me: AuthContext, @Param('patientId', ParseUUIDPipe) patientId: string) {
     return this.captures.listForPatient(me.clinicId, patientId);
   }
 
   @Get('captures/:id')
-  @RequirePermission('patients.read')
+  @RequirePermission('captures.read')
   get(@CurrentUser() me: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
     return this.captures.get(me, id);
   }
 
   @Post('captures/:id/uploads/:angle')
   @HttpCode(200)
-  @RequirePermission('patients.write')
+  @RequirePermission('captures.write')
   upload(
     @CurrentUser() me: AuthContext,
     @Param('id', ParseUUIDPipe) id: string,
@@ -53,7 +53,7 @@ export class CapturesController {
   }
 
   @Put('captures/:id/photos/:angle')
-  @RequirePermission('patients.write')
+  @RequirePermission('captures.write')
   register(
     @CurrentUser() me: AuthContext,
     @Param('id', ParseUUIDPipe) id: string,
@@ -64,7 +64,7 @@ export class CapturesController {
   }
 
   @Delete('captures/:id/photos/:angle')
-  @RequirePermission('patients.write')
+  @RequirePermission('captures.write')
   deletePhoto(
     @CurrentUser() me: AuthContext,
     @Param('id', ParseUUIDPipe) id: string,
@@ -75,14 +75,14 @@ export class CapturesController {
 
   @Post('captures/:id/complete')
   @HttpCode(200)
-  @RequirePermission('patients.write')
+  @RequirePermission('captures.write')
   complete(@CurrentUser() me: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
     return this.captures.complete(me, id);
   }
 
   @Post('captures/:id/cancel')
   @HttpCode(204)
-  @RequirePermission('patients.write')
+  @RequirePermission('captures.write')
   async cancel(@CurrentUser() me: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
     await this.captures.cancel(me, id);
   }
