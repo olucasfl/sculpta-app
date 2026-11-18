@@ -404,6 +404,12 @@ E0 Fundação ─► E1 Design + telas de gestão ─► E1B Contas, clínicas e
 
 **Critério:** uma pessoa de fora sobe o ambiente seguindo só o README e percorre o roteiro de demonstração.
 
+**Entregue / Fora desta entrega (honesto, 18/11/2026)**
+- Entregue: README novo (estado real, variáveis, roteiro de demonstração de 10 minutos); [LGPD-CHECKLIST.md](LGPD-CHECKLIST.md) (feito, parcial e falta, sem pretensão de parecer jurídico); [OPERACAO.md](OPERACAO.md) (backup e restauração, retenção, observabilidade, staging); job de testes de tela no CI; `pnpm audit --prod` sem vulnerabilidades conhecidas em 18/11/2026; `pnpm check` (lint, tipos, testes e build) verde.
+- **Não executado**: Docker/compose, o CI no GitHub, o worker Python (`pytest`, `ruff`, `mypy`, `pip-audit`: sem Python nesta máquina), staging, teste de backup e restauração.
+- **Falta**: validação jurídica do termo, métricas de fila e reconstrução, logs estruturados com coleta central, 2FA, verificação de e-mail e recuperação de senha, RLS efetiva na API, banco em São Paulo, exportação dos dados do paciente.
+- O critério ("uma pessoa de fora sobe o ambiente só pelo README") **não foi testado com outra pessoa**.
+
 ---
 
 ### Etapa 8 — Futuro (não comprometido)
