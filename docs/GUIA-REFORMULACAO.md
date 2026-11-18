@@ -389,6 +389,8 @@ E0 Fundação ─► E1 Design + telas de gestão ─► E1B Contas, clínicas e
 **Critérios de aceite:** você se reconhece no modelo; reconstrução em < 1 min (meta do documento técnico); `LOW_QUALITY` e `FACE_NOT_FOUND` voltam ao usuário com instrução clara; nenhuma foto persiste no worker.
 **Risco:** é a etapa que decide o produto. Qualidade com poucas fotos é **desconhecida** até a Fase 0.
 
+**Estado (18/11/2026): preparada, não executada.** Nenhum item de 1 a 6 foi feito: dependem de GPU e de licença (decisão sua). O que ficou pronto é o contrato com o worker (5 a 10 vistas), a fila, as 9 vistas, a confiança e o roteiro da Fase 0. Detalhes, riscos e o que preciso de você em [ETAPA-6-ROSTO-REAL.md](ETAPA-6-ROSTO-REAL.md).
+
 ---
 
 ### Etapa 7 — Endurecimento e entrega  (M)
