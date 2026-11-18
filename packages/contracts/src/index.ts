@@ -13,3 +13,4 @@ export * from './sliders.js';
 export * from './captures.js';
 export * from './simulations.js';
 export * from './worker.js';
+export * from './product.js';

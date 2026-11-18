@@ -63,9 +63,30 @@ export class PatientsService {
 
   async list(clinicId: string, q: PatientListQuery): Promise<Paginated<Patient>> {
     const activeConsent = { revokedAt: null, scopes: { has: 'SIMULATION' as const } };
+    // Profissional: quem já capturou ou simulou o paciente.
+    let byProfessional: Prisma.PatientWhereInput = {};
+    if (q.professionalId) {
+      const sims = await this.prisma.simulation.findMany({
+        where: { clinicId, createdById: q.professionalId },
+        select: { patientId: true },
+        distinct: ['patientId'],
+      });
+      byProfessional = {
+        OR: [{ captures: { some: { capturedById: q.professionalId } } }, { id: { in: sims.map((x) => x.patientId) } }],
+      };
+    }
     const where: Prisma.PatientWhereInput = {
       clinicId,
       deletedAt: null,
+      ...byProfessional,
+      ...(q.createdFrom || q.createdTo
+        ? {
+            createdAt: {
+              ...(q.createdFrom ? { gte: new Date(q.createdFrom + 'T00:00:00.000Z') } : {}),
+              ...(q.createdTo ? { lte: new Date(q.createdTo + 'T23:59:59.999Z') } : {}),
+            },
+          }
+        : {}),
       ...(q.consent === 'active' ? { consents: { some: activeConsent } } : {}),
       ...(q.consent === 'pending' ? { consents: { none: activeConsent } } : {}),
       ...(q.search
@@ -141,6 +162,7 @@ export class PatientsService {
           deletedAt: new Date(),
         },
       });
+      await tx.patientNote.deleteMany({ where: { patientId: id, clinicId: me.clinicId } });
       await this.audit.log(me, 'PATIENT_DELETE', 'patient', id, tx);
     });
   }

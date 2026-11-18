@@ -14,6 +14,9 @@ export interface PatientFilters {
   page?: number;
   pageSize?: number;
   consent?: 'active' | 'pending';
+  createdFrom?: string;
+  createdTo?: string;
+  professionalId?: string;
 }
 
 export const patientKeys = {

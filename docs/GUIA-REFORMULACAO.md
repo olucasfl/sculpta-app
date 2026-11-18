@@ -365,6 +365,13 @@ E0 Fundação ─► E1 Design + telas de gestão ─► E1B Contas, clínicas e
 
 **Risco:** e-mail real exige provedor (SMTP/serviço) e configuração; em produção, sem ele, a recuperação de senha **não é ativada**. Relatório em PDF exige escolher biblioteca de renderização (a decidir no início da etapa, com justificativa).
 
+
+**Entregue / Fora desta entrega (honesto, 18/11/2026)**
+- Entregue: **painel** (`GET /api/dashboard`: pacientes, termos pendentes, capturas e simulações do mês e atividade recente; quem não vê fotos recebe só os números); **filtros de pacientes** por período de cadastro e por profissional (quem já capturou ou simulou), na API e na tela; **anotações** por paciente (autor e data; apaga quem escreveu ou a gerência; apagadas junto com o paciente); **linha do tempo** (cadastro, termo, captura, simulação, anotação) respeitando o perfil; **relatório em PDF** da simulação (`GET /api/simulations/:id/report.pdf`) com logo e nome da clínica, versão, ajustes sem unidade clínica, miniatura e ressalva, auditado; migração 0008 (com RLS).
+- Testes: `apps/api/test/product.test.ts` (isolamento entre clínicas, permissões por perfil, filtros, anotações, linha do tempo, PDF).
+- **Fora**: prefixo `/api/v1` e OpenAPI gerado do Zod (os tipos já são compartilhados pelo pacote de contratos, então não há tipo duplicado à mão, mas não há documento OpenAPI); **documentos do paciente** (upload de arquivos); PDF com **fotos e antes/depois** (leva só a miniatura salva); entidade `reports` e URL assinada (o PDF é gerado na hora, sem guardar); filtro de auditoria por período e exportação CSV.
+- Ajuste de ambiente: o banco local (PGlite) aceita poucas conexões; o limite do servidor local subiu de 8 para 16 e os testes de tela usam pool de 4. Não afeta o Supabase.
+
 ---
 
 ### Etapa 6 — Rosto real do paciente  (G, depende de você)

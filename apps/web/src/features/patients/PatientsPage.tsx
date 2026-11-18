@@ -1,4 +1,6 @@
 import { ChevronLeft, ChevronRight, Plus, Search, Users } from 'lucide-react';
+import { can, type User } from '@sim/contracts';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Button } from '../../components/ui/Button';
@@ -6,6 +8,8 @@ import { Card, PageHeader } from '../../components/ui/Card';
 import { Dialog } from '../../components/ui/Dialog';
 import { EmptyState, ErrorState, Loading } from '../../components/ui/States';
 import { toast } from '../../components/ui/Toaster';
+import { api } from '../../lib/api';
+import { useAuth } from '../../lib/auth-store';
 import { cn, formatDate } from '../../lib/format';
 import { ConsentBadge } from './ConsentBadge';
 import { PatientForm } from './PatientForm';
@@ -18,6 +22,18 @@ export function PatientsPage() {
   const search = params.get('q') ?? '';
   const consent = (params.get('termo') as 'active' | 'pending' | null) ?? undefined;
   const page = Number(params.get('p') ?? 1);
+  const createdFrom = params.get('de') ?? undefined;
+  const createdTo = params.get('ate') ?? undefined;
+  const professionalId = params.get('prof') ?? undefined;
+  const role = useAuth((s) => s.user?.role ?? 'RECEPCAO');
+  const team = useQuery({ queryKey: ['users'], queryFn: () => api<User[]>('/users'), enabled: can(role, 'members.read') });
+  const setParam = (key: string, value?: string) =>
+    setParams((p) => {
+      if (value) p.set(key, value);
+      else p.delete(key);
+      p.delete('p');
+      return p;
+    });
   const [term, setTerm] = useState(search);
   const [creating, setCreating] = useState(params.get('novo') === '1');
   const navigate = useNavigate();
@@ -37,7 +53,7 @@ export function PatientsPage() {
     return () => clearTimeout(t);
   }, [term, search, setParams]);
 
-  const q = usePatients({ search: search || undefined, page, pageSize: PAGE_SIZE, consent });
+  const q = usePatients({ search: search || undefined, page, pageSize: PAGE_SIZE, consent, createdFrom, createdTo, professionalId });
   const totalPages = q.data ? Math.max(1, Math.ceil(q.data.total / PAGE_SIZE)) : 1;
 
   const setFilter = (value?: 'active' | 'pending') =>
@@ -94,6 +110,32 @@ export function PatientsPage() {
               </button>
             ))}
           </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+              Cadastrado de
+              <input type="date" value={createdFrom ?? ''} onChange={(e) => setParam('de', e.target.value)} className="h-11 rounded-lg border border-field bg-surface px-2 text-sm text-ink" />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+              até
+              <input type="date" value={createdTo ?? ''} onChange={(e) => setParam('ate', e.target.value)} className="h-11 rounded-lg border border-field bg-surface px-2 text-sm text-ink" />
+            </label>
+            {can(role, 'members.read') && team.data && (
+              <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+                Profissional
+                <select value={professionalId ?? ''} onChange={(e) => setParam('prof', e.target.value)} className="h-11 rounded-lg border border-field bg-surface px-2 text-sm text-ink">
+                  <option value="">Todos</option>
+                  {team.data.map((u) => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {(createdFrom || createdTo || professionalId) && (
+              <Button variant="ghost" size="sm" onClick={() => setParams((p) => (p.delete('de'), p.delete('ate'), p.delete('prof'), p.delete('p'), p))}>
+                Limpar filtros
+              </Button>
+            )}
+          </div>
         </div>
 
         {q.isPending ? (
@@ -101,7 +143,7 @@ export function PatientsPage() {
         ) : q.isError ? (
           <ErrorState error={q.error} onRetry={() => q.refetch()} />
         ) : q.data.items.length === 0 ? (
-          search || consent ? (
+          search || consent || createdFrom || createdTo || professionalId ? (
             <EmptyState icon={<Search className="size-5" />} title="Nenhum paciente encontrado" description="Tente outro nome, código ou filtro." />
           ) : (
             <EmptyState

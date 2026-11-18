@@ -31,6 +31,7 @@
     "@prisma/client": "7.10.1",
     "@sim/contracts": "workspace:*",
     "cookie-parser": "^1.4.7",
+    "pdf-lib": "^1.17.1",
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",

@@ -20,6 +20,8 @@ const WEB_PORT = 5174;
 const baseEnv = {
   ...process.env,
   DB_TARGET: 'local',
+  // O banco local (PGlite) aceita poucas conexões ao mesmo tempo; um pool maior que isso trava a API.
+  DATABASE_POOL_MAX: '4',
   DATABASE_URL: `postgresql://postgres:postgres@127.0.0.1:${DB_PORT}/postgres`,
   NODE_ENV: 'development',
   PORT: String(API_PORT),

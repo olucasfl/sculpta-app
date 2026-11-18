@@ -5,22 +5,28 @@ import { ButtonLink } from '../../components/ui/Button';
 import { Card, CardHeader, PageHeader } from '../../components/ui/Card';
 import { EmptyState, ErrorState, Loading } from '../../components/ui/States';
 import { useAuth } from '../../lib/auth-store';
-import { formatDate } from '../../lib/format';
+import { formatDate, formatDateTime } from '../../lib/format';
 import { ConsentBadge } from '../patients/ConsentBadge';
 import { usePatients } from '../patients/queries';
+import { useDashboard } from '../product/queries';
 
 export function DashboardPage() {
   const user = useAuth((s) => s.user);
   const recent = usePatients({ pageSize: 6 });
-  const pending = usePatients({ pageSize: 1, consent: 'pending' });
+  const stats = useDashboard();
+  const d = stats.data;
 
   return (
     <>
       <PageHeader title={`Olá, ${user?.name.split(' ')[0] ?? ''}`} description={user?.clinicName} />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <Stat label="Pacientes cadastrados" value={recent.data?.total} icon={<Users className="size-4" aria-hidden />} to="/patients" />
-        <Stat label="Sem termo ativo" value={pending.data?.total} icon={<FileSignature className="size-4" aria-hidden />} to="/patients?termo=pending" />
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="Pacientes cadastrados" value={d?.patients.total} hint={d ? `${d.patients.newThisMonth} neste mês` : undefined} icon={<Users className="size-4" aria-hidden />} to="/patients" />
+        <Stat label="Sem termo ativo" value={d?.patients.pendingConsent} icon={<FileSignature className="size-4" aria-hidden />} to="/patients?termo=pending" />
+        <Stat label="Capturas no mês" value={d?.captures.thisMonth} hint={d ? `${d.captures.open} em andamento` : undefined} icon={<Camera className="size-4" aria-hidden />} to="/capture" />
+        <Stat label="Simulações no mês" value={d?.simulations.thisMonth} hint={d ? `${d.simulations.versionsThisMonth} versões salvas` : undefined} icon={<Box className="size-4" aria-hidden />} to="/simulations" />
+      </div>
+      <div className="mb-6">
         <Card className="flex flex-col justify-between gap-3 p-5">
           <p className="text-sm font-medium text-muted">Ações rápidas</p>
           <div className="flex flex-wrap gap-2">
@@ -36,6 +42,25 @@ export function DashboardPage() {
           </div>
         </Card>
       </div>
+
+      {d && d.recent.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader title="Atividade recente" />
+          <ul className="divide-y divide-line">
+            {d.recent.map((r, i) => (
+              <li key={i}>
+                <Link to={`/patients/${r.patientId}`} className="flex items-center justify-between gap-3 px-5 py-3 hover:bg-subtle/60">
+                  <span>
+                    <span className="block font-medium">{r.patientName}</span>
+                    <span className="text-xs text-muted">{r.kind === 'CAPTURE' ? 'Captura facial' : 'Simulação'}</span>
+                  </span>
+                  <span className="text-xs text-muted">{formatDateTime(r.at)}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <Card>
         <CardHeader title="Pacientes recentes" action={<Link to="/patients" className="text-sm font-medium text-accent hover:underline">Ver todos</Link>} />
@@ -65,7 +90,7 @@ export function DashboardPage() {
   );
 }
 
-function Stat({ label, value, icon, to }: { label: string; value?: number; icon: ReactNode; to: string }) {
+function Stat({ label, value, hint, icon, to }: { label: string; value?: number; hint?: string; icon: ReactNode; to: string }) {
   return (
     <Link to={to} className="rounded-xl border border-line bg-surface p-5 shadow-card transition-colors hover:border-field">
       <div className="flex items-center gap-2 text-sm font-medium text-muted">
@@ -73,6 +98,7 @@ function Stat({ label, value, icon, to }: { label: string; value?: number; icon:
         {label}
       </div>
       <p className="mt-2 text-3xl font-semibold tabular-nums">{value ?? '–'}</p>
+      {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
     </Link>
   );
 }

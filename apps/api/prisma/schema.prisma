@@ -238,6 +238,7 @@ model Patient {
 
   consents Consent[]
   captures CaptureSession[]
+  noteEntries PatientNote[]
 
   @@index([clinicId, deletedAt])
   @@map("patients")
@@ -380,4 +381,18 @@ model AuditLog {
 
   @@index([clinicId, createdAt])
   @@map("audit_logs")
+}
+
+/// Anotações da equipe sobre o paciente (linha do tempo). Texto livre: evitar dados sensíveis além do necessário.
+model PatientNote {
+  id        String   @id @default(uuid()) @db.Uuid
+  clinicId  String   @map("clinic_id") @db.Uuid
+  patientId String   @map("patient_id") @db.Uuid
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  authorId  String   @map("author_id") @db.Uuid
+  text      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([clinicId, patientId, createdAt])
+  @@map("patient_notes")
 }

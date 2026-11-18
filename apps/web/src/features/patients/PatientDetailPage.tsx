@@ -11,6 +11,7 @@ import { errorMessage } from '../../lib/api';
 import { useAuth } from '../../lib/auth-store';
 import { formatDate, formatDateTime } from '../../lib/format';
 import { ConsentBadge } from './ConsentBadge';
+import { PatientTimeline } from '../product/PatientTimeline';
 import { PatientHistory } from './PatientHistory';
 import { PatientForm } from './PatientForm';
 import {
@@ -107,6 +108,7 @@ export function PatientDetailPage() {
           </Card>
 
           <PatientHistory patient={p} />
+          <PatientTimeline patientId={p.id} />
         </div>
       </div>
 

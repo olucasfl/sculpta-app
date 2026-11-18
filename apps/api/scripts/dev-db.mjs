@@ -13,7 +13,7 @@ const port = Number(process.env.PGLITE_PORT ?? 5433);
 
 mkdirSync(dataDir, { recursive: true });
 const db = await PGlite.create(dataDir);
-const server = new PGLiteSocketServer({ db, port, host: '127.0.0.1', maxConnections: 8 });
+const server = new PGLiteSocketServer({ db, port, host: '127.0.0.1', maxConnections: 16 });
 await server.start();
 console.log(`[dev-db] PGlite ouvindo em postgresql://postgres:postgres@127.0.0.1:${port}/postgres`);
 console.log(`[dev-db] Dados em ${dataDir}. Ctrl+C para parar.`);

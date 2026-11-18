@@ -21,6 +21,7 @@ import { UsersModule } from './users/users.module.js';
 import { CapturesModule } from './captures/captures.module.js';
 import { ReconstructionsModule } from './reconstructions/reconstructions.module.js';
 import { RetentionModule } from './retention/retention.module.js';
+import { ProductModule } from './product/product.module.js';
 import { SimulationsModule } from './simulations/simulations.module.js';
 
 @Controller('health')
@@ -54,6 +55,7 @@ class HealthController {
     CapturesModule,
     ReconstructionsModule,
     SimulationsModule,
+    ProductModule,
     RetentionModule,
   ],
   controllers: [HealthController],

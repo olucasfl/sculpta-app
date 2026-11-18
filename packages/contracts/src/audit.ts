@@ -37,6 +37,9 @@ export const AUDIT_ACTIONS = [
   'SIMULATION_VERSION_SAVE',
   'SIMULATION_EXPORT',
   'RETENTION_PURGE',
+  'NOTE_CREATE',
+  'NOTE_DELETE',
+  'REPORT_GENERATE',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -79,6 +82,9 @@ export const AUDIT_ACTION_LABEL: Record<AuditAction, string> = {
   SIMULATION_VERSION_SAVE: 'Versão de simulação salva',
   SIMULATION_EXPORT: 'Simulação exportada',
   RETENTION_PURGE: 'Expurgo por prazo de retenção',
+  NOTE_CREATE: 'Anotação criada',
+  NOTE_DELETE: 'Anotação apagada',
+  REPORT_GENERATE: 'Relatório em PDF gerado',
 };
 
 export interface AuditEntry {

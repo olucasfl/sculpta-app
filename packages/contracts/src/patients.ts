@@ -34,6 +34,12 @@ export const PatientListQuery = PageQuery.extend({
   search: optionalText(120),
   /** `active` = com termo obrigatório ativo; `pending` = sem termo ou revogado. */
   consent: optional(z.enum(['active', 'pending'])),
+  /** Cadastrados a partir desta data (AAAA-MM-DD), inclusive. */
+  createdFrom: optional(z.iso.date()),
+  /** Cadastrados até esta data (AAAA-MM-DD), inclusive. */
+  createdTo: optional(z.iso.date()),
+  /** Pacientes que esta pessoa da equipe já capturou ou simulou. */
+  professionalId: optional(z.uuid()),
 });
 export type PatientListQuery = z.infer<typeof PatientListQuery>;
 

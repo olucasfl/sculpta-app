@@ -16,6 +16,7 @@ import {
   Crosshair,
   Download,
   Eye,
+  FileText,
   Grid3x3,
   History as HistoryIcon,
   Info,
@@ -43,6 +44,7 @@ import { api, errorMessage } from '../../lib/api';
 import { useAuth } from '../../lib/auth-store';
 import { cn, formatDateTime } from '../../lib/format';
 import { useReconstruction } from '../capture/queries';
+import { fetchReport } from '../product/queries';
 import { buildExportImage, download, EXPORT_VIEWS, thumbnail } from './exportImage';
 import { brushTargets, PIXELS_PER_UNIT } from './brush';
 import { FaceViewer, type CompareMode, type ModelInfo, type SculptHandlers, type ViewerHandle, type ViewName } from './FaceViewer';
@@ -121,6 +123,18 @@ export function SimulatorPage() {
     enabled: !!rec.data?.captureId && can(role, 'captures.read'),
   });
   const frontPhoto = capture.data?.photos.find((p) => p.angle === 'FRONT');
+
+  const [reporting, setReporting] = useState(false);
+  async function downloadReport() {
+    setReporting(true);
+    try {
+      download(await fetchReport(id), 'relatorio-simulacao.pdf');
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setReporting(false);
+    }
+  }
 
   async function colorsFromFrontPhoto() {
     if (!frontPhoto?.landmarks) return;
@@ -315,6 +329,11 @@ export function SimulatorPage() {
           {can(role, 'simulations.export') && (
             <Button size="sm" variant="secondary" icon={<Download className="size-4" aria-hidden />} onClick={() => setExporting(true)}>
               Exportar
+            </Button>
+          )}
+          {can(role, 'reports.generate') && (
+            <Button size="sm" variant="secondary" icon={<FileText className="size-4" aria-hidden />} loading={reporting} onClick={downloadReport}>
+              Relatório PDF
             </Button>
           )}
         </div>
