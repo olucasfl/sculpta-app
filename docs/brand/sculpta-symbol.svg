@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Sculpta">
+  <title>Sculpta — símbolo</title>
+  <g transform="translate(2 2)">
+    <polygon points="30,2 56,16.5 30,31 4,16.5" fill="#78bfba"/>
+    <polygon points="4,16.5 30,31 30,60 4,45.5" fill="#0f6e6a"/>
+    <polygon points="56,16.5 56,45.5 30,60 30,31" fill="#0a4643"/>
+  </g>
+</svg>
