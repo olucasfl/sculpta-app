@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl
 
-Angle = Literal["FRONT", "LEFT_45", "RIGHT_45", "LEFT_90", "RIGHT_90"]
+Angle = Literal["FRONT", "LEFT_45", "RIGHT_45", "LEFT_90", "RIGHT_90", "LEFT_20", "RIGHT_20", "CHIN_UP", "CHIN_DOWN"]
 Source = Literal["VGGTFACE", "TEMPLATE", "FALLBACK_FIT"]
 ErrorCode = Literal["FACE_NOT_FOUND", "LOW_QUALITY", "TIMEOUT", "INTERNAL"]
 
@@ -22,7 +22,7 @@ class Output(BaseModel):
 
 class ReconstructRequest(BaseModel):
     jobId: str  # noqa: N815
-    photos: list[PhotoRef] = Field(min_length=5, max_length=5)
+    photos: list[PhotoRef] = Field(min_length=5, max_length=10)
     output: Output
 
 

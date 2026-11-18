@@ -119,3 +119,48 @@ test('aparência: pele, olhos, cabelo e sobrancelhas aparecem; controles mudam o
   await page.waitForTimeout(3000);
   await page.screenshot({ path: join(dir, '34-aparencia-sem-cabelo-modo-leve.png') });
 });
+
+test('captura guiada: 9 vistas (5 obrigatórias), abas câmera/arquivo/vídeo e foto automática ligada', async ({ page }, info) => {
+  test.setTimeout(120000);
+  test.skip(info.project.name !== 'desktop-1440x900');
+  await page.goto('/login');
+  await page.getByLabel('E-mail').fill('profissional@demo.local');
+  await page.getByLabel('Senha', { exact: true }).fill(PASSWORD);
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'));
+  try {
+    await page.getByRole('button', { name: 'Começar' }).click({ timeout: 3_000 });
+  } catch {
+    /* popup já visto */
+  }
+  // O seed não tem paciente com termo ativo: assina um termo de teste pela API da pilha isolada.
+  const api = 'http://127.0.0.1:3100/api';
+  const session = await page.request.post(api + '/auth/login', { data: { email: 'profissional@demo.local', password: PASSWORD } });
+  const headers = { Authorization: 'Bearer ' + (await session.json()).accessToken };
+  const patient = await page.request.post(api + '/patients', { headers, data: { name: 'Paciente Captura E2E' } });
+  const patientId = (await patient.json()).id as string;
+  const png = 'data:image/png;base64,' + Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201a5f6e1a40000000049454e44ae426082', 'hex').toString('base64');
+  const consent = await page.request.post(api + '/patients/' + patientId + '/consents', {
+    headers,
+    data: { termVersion: 'v1.0-2026-11', scopes: ['SIMULATION'], signerName: 'Paciente Captura E2E', signerRelation: 'PACIENTE', signatureDataUrl: png },
+  });
+  expect(consent.status()).toBe(201);
+  await page.goto('/capture');
+  await page.getByRole('listitem').filter({ hasText: 'Paciente Captura E2E' }).getByRole('button', { name: 'Iniciar captura' }).click();
+  await page.waitForURL(/\/capture\/[0-9a-f-]+$/);
+  const nav = page.getByRole('navigation', { name: 'Vistas' });
+  await expect(nav.locator('ol > li')).toHaveCount(9);
+  await expect(page.getByText('0 de 5 vistas obrigatórias')).toBeVisible();
+  await expect(nav.getByText('Opcional').first()).toBeVisible();
+  // Concluir só depois das 5 obrigatórias.
+  await expect(page.getByRole('button', { name: 'Concluir e gerar modelo 3D' })).toBeDisabled();
+  await page.getByRole('tab', { name: 'Vídeo' }).click();
+  await expect(page.getByText('Vídeo guiado')).toBeVisible();
+  await expect(page.getByText('Gravar ou escolher vídeo')).toBeVisible();
+  await page.getByRole('tab', { name: 'Câmera' }).click();
+  await nav.getByRole('button', { name: /Queixo para cima/ }).click();
+  await expect(page.getByText('Levante o queixo devagar', { exact: false })).toBeVisible();
+  const dir = join('e2e', 'screenshots', info.project.name);
+  mkdirSync(dir, { recursive: true });
+  await page.screenshot({ path: join(dir, '40-captura-9-vistas.png') });
+});

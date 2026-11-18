@@ -332,6 +332,13 @@ E0 Fundação ─► E1 Design + telas de gestão ─► E1B Contas, clínicas e
 
 **Risco:** sem câmera real não valido o MediaPipe de verdade; **você testa em celular e tablet** e me devolve o resultado.
 
+**Entregue / Fora desta entrega (honesto, 18/11/2026)**
+- Entregue: 9 vistas (frente, 20°/45°/perfil de cada lado, queixo para cima e para baixo), das quais **5 são obrigatórias** (frente, 45° e perfil) e 4 opcionais; limite de 10 fotos por captura; `pitchDeg` no contrato, no banco (migração 0007) e na API; foto automática (1 s na pose certa e quadro nítido, anel de contagem e mira); aba **Vídeo** que lê um vídeo (gravado na hora ou enviado) e escolhe o melhor quadro de cada vista por nitidez × tamanho do rosto; worker aceita de 5 a 10 vistas.
+- Testes: regras de pose, inclinação, estabilidade e escolha de quadros são testes unitários; o fluxo da tela (9 vistas, abas, botão Concluir bloqueado) tem teste de tela; a API tem teste com as 9 vistas e com a fila do worker.
+- **Não validado com câmera real**: sinais de ângulo e de inclinação (`YAW_SIGN`, `PITCH_SIGN`), detecção em perfil de 90° (o MediaPipe costuma falhar; no vídeo essa vista tende a ficar sem quadro e vai por foto), desempenho da detecção no celular. Se o lado vier trocado, há o botão **Inverter lado** na câmera (guardado no navegador).
+- Fora: autocalibração do sinal, **gravação de vídeo guiada com instruções por voz**, e o worker em Python **não foi executado** nesta máquina (sem Python); a mudança é só de contrato (5 a 10 vistas e os novos nomes de vista).
+- O vídeo nunca é enviado nem guardado; só os quadros escolhidos.
+
 ---
 
 ### Etapa 5 — Back-end de produto  (G)

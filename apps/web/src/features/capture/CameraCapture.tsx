@@ -7,6 +7,8 @@ import { AngleGuide, CaptureChecks } from './CaptureChecks';
 import { encodeJpeg } from './imageEncoding';
 import type { PendingPhoto } from './types';
 import { evaluate, type FrameAnalysis } from './vision/analysis';
+import { applyFlip, readFlag, writeFlag } from './captureFlags';
+import { initialStability, stepStability, type StabilityState } from './vision/autoCapture';
 import { analyzeResult, getLandmarker, measureSharpness } from './vision/faceLandmarker';
 
 type CameraState = 'idle' | 'starting' | 'live' | 'error';
@@ -45,6 +47,18 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
   const [since, setSince] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
+  const [auto, setAuto] = useState(() => readFlag('sculpta.autoCapture', true));
+  const [flip, setFlip] = useState(() => readFlag('sculpta.flipSide', false));
+  const [progress, setProgress] = useState(0);
+  const angleRef = useRef(angle);
+  const autoRef = useRef(auto);
+  const flipRef = useRef(flip);
+  const busyRef = useRef(false);
+  const stability = useRef<StabilityState>(initialStability());
+  const captureRef = useRef<(manual: boolean) => void>(() => {});
+  angleRef.current = angle;
+  autoRef.current = auto;
+  flipRef.current = flip;
 
   const stop = useCallback(() => {
     stream.current?.getTracks().forEach((t) => t.stop());
@@ -55,6 +69,8 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
   useEffect(() => {
     setSince(Date.now());
     setAnalysis(null);
+    stability.current = initialStability();
+    setProgress(0);
   }, [angle]);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -105,9 +121,19 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
           lastSharp = t;
         }
         const result = landmarker.current ? landmarker.current.detectForVideo(v, t) : null;
-        const a = analyzeResult(result, sharp);
+        const raw = analyzeResult(result, sharp);
+        const a = { ...raw, ...applyFlip(raw, flipRef.current) };
         latest.current = a;
         setAnalysis(a);
+        // Foto automática: pose válida por 1 s e quadro nítido.
+        const ready = !!landmarker.current && evaluate(angleRef.current, a).ready;
+        const step = stepStability(stability.current, t, autoRef.current && ready && !busyRef.current, a.sharpness);
+        stability.current = step.state;
+        setProgress(step.progress);
+        if (step.fire) {
+          stability.current = initialStability();
+          captureRef.current(false);
+        }
         drawOverlay(overlay.current, v, a.landmarks, showLandmarks);
       }
       raf = requestAnimationFrame(tick);
@@ -124,6 +150,7 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
     const v = video.current;
     if (!v) return;
     setBusy(true);
+    busyRef.current = true;
     try {
       const a = latest.current;
       const photo = await encodeJpeg(v, v.videoWidth, v.videoHeight);
@@ -133,6 +160,7 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
           width: photo.width,
           height: photo.height,
           yawDeg: a?.yawDeg ?? null,
+          pitchDeg: a?.pitchDeg ?? null,
           sharpness: a?.sharpness ?? null,
           faceDetected: a?.faceDetected ?? false,
           faceHeightRatio: a?.faceHeightRatio ?? null,
@@ -142,9 +170,11 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
         },
       });
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
+  captureRef.current = (manual) => void capture(manual);
 
   const mirrored = facing === 'user';
 
@@ -153,7 +183,7 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
       <div className="relative mx-auto aspect-[3/4] w-full max-w-md overflow-hidden rounded-xl bg-ink">
         <video ref={video} playsInline muted className={`size-full object-cover ${mirrored ? '-scale-x-100' : ''}`} />
         <canvas ref={overlay} className={`pointer-events-none absolute inset-0 size-full object-cover ${mirrored ? '-scale-x-100' : ''}`} />
-        {state === 'live' && <AngleGuide angle={angle} ready={!!evaluation?.ready} />}
+        {state === 'live' && <AngleGuide angle={angle} ready={!!evaluation?.ready} progress={auto ? progress : 0} />}
         {state !== 'live' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-white">
             {state === 'starting' ? (
@@ -197,8 +227,20 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
 
             <div className="flex flex-col gap-2">
               <Button onClick={() => capture(false)} disabled={!evaluation?.ready} loading={busy} icon={<Camera className="size-4" aria-hidden />}>
-                {evaluation?.ready ? 'Capturar' : 'Aguardando posição'}
+                {evaluation?.ready ? (auto && progress > 0 ? 'Mantenha a pose…' : 'Capturar') : 'Aguardando posição'}
               </Button>
+              <label className="flex min-h-11 items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={auto}
+                  onChange={(e) => {
+                    setAuto(e.target.checked);
+                    writeFlag('sculpta.autoCapture', e.target.checked);
+                  }}
+                  className="size-5 accent-[var(--color-primary-600)]"
+                />
+                Foto automática (após 1 s na pose certa)
+              </label>
               {allowManual && (
                 <Button variant="secondary" size="sm" onClick={() => capture(true)} disabled={busy}>
                   Capturar sem validação automática
@@ -221,6 +263,17 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
                 }}
               >
                 Trocar câmera
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-pressed={flip}
+                onClick={() => {
+                  setFlip(!flip);
+                  writeFlag('sculpta.flipSide', !flip);
+                }}
+              >
+                {flip ? 'Lado invertido' : 'Inverter lado'}
               </Button>
               <Button variant="ghost" size="sm" icon={<ScanFace className="size-4" aria-hidden />} aria-pressed={showLandmarks} onClick={() => setShowLandmarks((v) => !v)}>
                 {showLandmarks ? 'Ocultar pontos' : 'Mostrar pontos'}

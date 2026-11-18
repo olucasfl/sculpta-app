@@ -1,5 +1,5 @@
-import { ANGLE_RULES, PhotoAngle, type CapturePhoto } from '@sim/contracts';
-import { Camera, CheckCircle2, ChevronLeft, ImageUp, RotateCcw, Trash2 } from 'lucide-react';
+import { ANGLE_RULES, PhotoAngle, REQUIRED_ANGLES, type CapturePhoto } from '@sim/contracts';
+import { Camera, CheckCircle2, ChevronLeft, Film, ImageUp, RotateCcw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { Button } from '../../components/ui/Button';
@@ -16,6 +16,7 @@ import { uploadPhoto, useCaptureActions, useCaptureSession } from './queries';
 import type { PendingPhoto } from './types';
 import { releaseLandmarkers } from './vision/faceLandmarker';
 import { UploadCapture } from './UploadCapture';
+import { VideoCapture, type VideoPick } from './VideoCapture';
 
 export function CaptureWizardPage() {
   const { captureId = '' } = useParams();
@@ -24,7 +25,7 @@ export function CaptureWizardPage() {
   const patient = usePatient(session.data?.patientId ?? '');
   const actions = useCaptureActions(captureId);
   const [angle, setAngle] = useState<PhotoAngle | null>(null);
-  const [mode, setMode] = useState<'camera' | 'upload'>('camera');
+  const [mode, setMode] = useState<'camera' | 'upload' | 'video'>('camera');
   const [pending, setPending] = useState<PendingPhoto | null>(null);
   const [retaking, setRetaking] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -42,7 +43,10 @@ export function CaptureWizardPage() {
   const firstMissing = PhotoAngle.options.find((a) => !byAngle.has(a)) ?? null;
   const current = angle ?? firstMissing ?? 'FRONT';
   const existing = byAngle.get(current);
-  const done = s.photos.length === PhotoAngle.options.length;
+  const done = REQUIRED_ANGLES.every((a) => byAngle.has(a));
+  const requiredSaved = REQUIRED_ANGLES.filter((a) => byAngle.has(a)).length;
+  const extrasSaved = s.photos.length - requiredSaved;
+  const missing = PhotoAngle.options.filter((a) => !byAngle.has(a));
 
   if (s.status !== 'OPEN') {
     return (
@@ -74,6 +78,17 @@ export function CaptureWizardPage() {
     }
   }
 
+  async function saveVideoPicks(picks: VideoPick[]) {
+    let last = s;
+    for (const p of picks) {
+      last = await uploadPhoto(captureId, p.angle, p.photo.blob, p.photo.meta);
+      actions.set(last);
+    }
+    toast.ok(`${picks.length} ${picks.length === 1 ? 'foto salva' : 'fotos salvas'} a partir do vídeo.`);
+    const next = PhotoAngle.options.find((a) => !last.photos.some((p) => p.angle === a));
+    setAngle(next ?? current);
+  }
+
   async function finish() {
     try {
       const rec = await actions.complete.mutateAsync();
@@ -93,7 +108,7 @@ export function CaptureWizardPage() {
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Captura facial</h1>
-          <p className="mt-1 text-muted">{s.photos.length} de 5 vistas · as imagens são processadas no próprio aparelho antes do envio.</p>
+          <p className="mt-1 text-muted">{requiredSaved} de {REQUIRED_ANGLES.length} vistas obrigatórias{extrasSaved > 0 ? ` + ${extrasSaved} extra${extrasSaved > 1 ? 's' : ''}` : ''} · as imagens são processadas no próprio aparelho antes do envio.</p>
         </div>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => setCancelling(true)}>Cancelar sessão</Button>
@@ -103,7 +118,7 @@ export function CaptureWizardPage() {
 
       <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
         <nav aria-label="Vistas" className="flex flex-col gap-4">
-          <ol className="grid grid-cols-5 gap-2 lg:grid-cols-1">
+          <ol className="grid grid-cols-3 gap-2 sm:grid-cols-5 lg:grid-cols-1">
             {PhotoAngle.options.map((a, i) => {
               const photo = byAngle.get(a);
               const active = a === current;
@@ -129,7 +144,7 @@ export function CaptureWizardPage() {
                     <span className="hidden min-w-0 lg:block">
                       <span className="block font-medium">{ANGLE_RULES[a].label}</span>
                       <span className="text-xs text-muted">
-                        {photo ? (photo.validation === 'MANUAL' ? 'Salva · validação manual' : 'Salva') : 'Pendente'}
+                        {photo ? (photo.validation === 'MANUAL' ? 'Salva · validação manual' : 'Salva') : REQUIRED_ANGLES.includes(a) ? 'Pendente' : 'Opcional'}
                       </span>
                     </span>
                     <span className="sr-only lg:hidden">{ANGLE_RULES[a].label}{photo ? ', salva' : ', pendente'}</span>
@@ -164,6 +179,7 @@ export function CaptureWizardPage() {
                 {([
                   ['camera', 'Câmera', <Camera key="c" className="size-4" aria-hidden />],
                   ['upload', 'Enviar arquivo', <ImageUp key="u" className="size-4" aria-hidden />],
+                  ['video', 'Vídeo', <Film key="v" className="size-4" aria-hidden />],
                 ] as const).map(([m, label, icon]) => (
                   <button
                     key={m}
@@ -177,7 +193,13 @@ export function CaptureWizardPage() {
                   </button>
                 ))}
               </div>
-              {mode === 'camera' ? <CameraCapture angle={current} onCaptured={setPending} /> : <UploadCapture key={current} angle={current} onCaptured={setPending} />}
+              {mode === 'camera' ? (
+                <CameraCapture angle={current} onCaptured={setPending} />
+              ) : mode === 'video' ? (
+                <VideoCapture missing={missing} onPicked={saveVideoPicks} />
+              ) : (
+                <UploadCapture key={current} angle={current} onCaptured={setPending} />
+              )}
             </>
           ) : existing ? (
             <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_17rem]">

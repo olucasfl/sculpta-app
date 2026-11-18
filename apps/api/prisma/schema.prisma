@@ -71,6 +71,10 @@ enum PhotoAngle {
   RIGHT_45
   LEFT_90
   RIGHT_90
+  LEFT_20
+  RIGHT_20
+  CHIN_UP
+  CHIN_DOWN
 }
 
 enum PhotoValidation {
@@ -286,6 +290,7 @@ model Photo {
   width           Int?
   height          Int?
   yawDeg          Float?          @map("yaw_deg")
+  pitchDeg        Float?          @map("pitch_deg")
   sharpness       Float?
   faceDetected    Boolean?        @map("face_detected")
   validation      PhotoValidation @default(AUTO)

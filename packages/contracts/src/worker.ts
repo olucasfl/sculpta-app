@@ -12,7 +12,7 @@ export const WORKER_MAX_SKEW_SECONDS = 300;
 
 export const ReconstructRequest = z.object({
   jobId: z.string(),
-  photos: z.array(z.object({ angle: PhotoAngle, url: z.url() })).length(5),
+  photos: z.array(z.object({ angle: PhotoAngle, url: z.url() })).min(5).max(10),
   output: z.object({ meshUploadUrl: z.url() }),
 });
 export type ReconstructRequest = z.infer<typeof ReconstructRequest>;

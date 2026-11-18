@@ -45,6 +45,7 @@ export function UploadCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
             width: photo.width,
             height: photo.height,
             yawDeg: a.yawDeg,
+            pitchDeg: a.pitchDeg ?? null,
             sharpness: a.sharpness,
             faceDetected: a.faceDetected,
             faceHeightRatio: a.faceHeightRatio,

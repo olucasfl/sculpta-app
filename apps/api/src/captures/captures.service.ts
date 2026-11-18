@@ -8,6 +8,7 @@ import {
 import {
   PHOTO_MAX_BYTES,
   PhotoAngle,
+  REQUIRED_ANGLES,
   type CapturePhoto,
   type CaptureSession,
   type CaptureSummary,
@@ -139,6 +140,7 @@ export class CapturesService {
       width: input.width,
       height: input.height,
       yawDeg: input.yawDeg,
+      pitchDeg: input.pitchDeg ?? null,
       sharpness: input.sharpness,
       faceDetected: input.faceDetected,
       faceHeightRatio: input.faceHeightRatio,
@@ -176,7 +178,7 @@ export class CapturesService {
     const s = await this.findOwned(me.clinicId, id);
     this.assertOpen(s);
     await this.consents.assertActive(me.clinicId, s.patientId);
-    const missing = PhotoAngle.options.filter((a) => !s.photos.some((p) => p.angle === a));
+    const missing = REQUIRED_ANGLES.filter((a) => !s.photos.some((p) => p.angle === a));
     if (missing.length > 0) {
       throw new BadRequestException({
         code: 'PHOTOS_MISSING',
@@ -237,6 +239,7 @@ export class CapturesService {
           width: p.width,
           height: p.height,
           yawDeg: p.yawDeg,
+          pitchDeg: p.pitchDeg,
           sharpness: p.sharpness,
           faceDetected: p.faceDetected,
           validation: p.validation,

@@ -1,4 +1,4 @@
-import { CURRENT_TERM, PhotoAngle, type CaptureSession, type UploadTarget } from '@sim/contracts';
+import { CURRENT_TERM, PhotoAngle, REQUIRED_ANGLES, type CaptureSession, type UploadTarget } from '@sim/contracts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ReconstructionQueue } from '../src/reconstructions/reconstruction-queue.js';
 import { auth, login, seedClinic, SIGNATURE, startHarness, type Harness } from './harness.js';
@@ -73,11 +73,12 @@ describe('captura', () => {
     expect(early.body.code).toBe('PHOTOS_MISSING');
     expect(early.body.details).toHaveLength(5);
 
-    for (const a of PhotoAngle.options) {
+    const required = PhotoAngle.options.filter((a) => REQUIRED_ANGLES.includes(a));
+    for (const a of required) {
       await uploadAngle(s.id, a, tok.auxA, a.endsWith('90') ? { validation: 'MANUAL', faceDetected: false, yawDeg: null } : {});
     }
     const full = (await h.http().get(`/api/captures/${s.id}`).set(auth(tok.auxA)).expect(200)).body as CaptureSession;
-    expect(full.photos.map((p) => p.angle)).toEqual(PhotoAngle.options);
+    expect(full.photos.map((p) => p.angle)).toEqual(required);
     expect(full.photos.find((p) => p.angle === 'LEFT_90')?.validation).toBe('MANUAL');
 
     // A URL de leitura devolve a própria foto.
@@ -97,6 +98,21 @@ describe('captura', () => {
     const list = await h.http().get(`/api/patients/${patientId}/captures`).set(auth(tok.proA)).expect(200);
     expect(list.body[0]).toMatchObject({ status: 'COMPLETED', photoCount: 5 });
     expect(list.body[0].reconstructions[0].status).toBe('DONE');
+  });
+
+  it('vistas extras (20° e queixo) são opcionais, guardam a inclinação e vão junto na conclusão', async () => {
+    const patientId = await patientWithConsent();
+    const s = (await h.http().post(`/api/patients/${patientId}/captures`).set(auth(tok.auxA)).expect(201)).body as CaptureSession;
+    for (const a of PhotoAngle.options) {
+      await uploadAngle(s.id, a, tok.auxA, {
+        ...(a.endsWith('90') ? { validation: 'MANUAL', faceDetected: false, yawDeg: null } : {}),
+        ...(a === 'CHIN_UP' ? { pitchDeg: 22 } : a === 'CHIN_DOWN' ? { pitchDeg: -20 } : {}),
+      });
+    }
+    const full = (await h.http().get(`/api/captures/${s.id}`).set(auth(tok.auxA)).expect(200)).body as CaptureSession;
+    expect(full.photos).toHaveLength(9);
+    expect(full.photos.find((p) => p.angle === 'CHIN_UP')?.pitchDeg).toBe(22);
+    await h.http().post(`/api/captures/${s.id}/complete`).set(auth(tok.auxA)).expect(200);
   });
 
   it('refazer uma vista substitui o arquivo antigo; descartar apaga', async () => {

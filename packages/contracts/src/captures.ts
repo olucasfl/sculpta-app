@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-export const PhotoAngle = z.enum(['FRONT', 'LEFT_45', 'RIGHT_45', 'LEFT_90', 'RIGHT_90']);
+/** Ordem de captura: frente, esquerda (20°, 45°, perfil), direita, depois queixo para cima e para baixo. */
+export const PhotoAngle = z.enum(['FRONT', 'LEFT_20', 'LEFT_45', 'LEFT_90', 'RIGHT_20', 'RIGHT_45', 'RIGHT_90', 'CHIN_UP', 'CHIN_DOWN']);
 export type PhotoAngle = z.infer<typeof PhotoAngle>;
 
 /**
@@ -10,7 +11,7 @@ export type PhotoAngle = z.infer<typeof PhotoAngle>;
  */
 export const ANGLE_RULES: Record<
   PhotoAngle,
-  { label: string; short: string; instruction: string; yawMin: number; yawMax: number; profile: boolean }
+  { label: string; short: string; instruction: string; yawMin: number; yawMax: number; profile: boolean; pitchMin?: number; pitchMax?: number }
 > = {
   FRONT: {
     label: 'Frontal',
@@ -19,6 +20,42 @@ export const ANGLE_RULES: Record<
     yawMin: -5,
     yawMax: 5,
     profile: false,
+  },
+  LEFT_20: {
+    label: '20° à esquerda',
+    short: '20° esq.',
+    instruction: 'Vire o rosto só um pouco para a sua esquerda.',
+    yawMin: 12,
+    yawMax: 28,
+    profile: false,
+  },
+  RIGHT_20: {
+    label: '20° à direita',
+    short: '20° dir.',
+    instruction: 'Vire o rosto só um pouco para a sua direita.',
+    yawMin: -28,
+    yawMax: -12,
+    profile: false,
+  },
+  CHIN_UP: {
+    label: 'Queixo para cima',
+    short: 'Queixo ↑',
+    instruction: 'De frente, levante o queixo devagar, sem virar o rosto. Mostra a parte de baixo do queixo e do nariz.',
+    yawMin: -8,
+    yawMax: 8,
+    profile: false,
+    pitchMin: 15,
+    pitchMax: 35,
+  },
+  CHIN_DOWN: {
+    label: 'Queixo para baixo',
+    short: 'Queixo ↓',
+    instruction: 'De frente, abaixe o queixo devagar, sem virar o rosto. Mostra a testa e a linha das sobrancelhas.',
+    yawMin: -8,
+    yawMax: 8,
+    profile: false,
+    pitchMin: -35,
+    pitchMax: -15,
   },
   LEFT_45: {
     label: '45° à esquerda',
@@ -54,6 +91,14 @@ export const ANGLE_RULES: Record<
   },
 };
 
+/** Vistas obrigatórias para concluir; as demais (20° e queixo) são opcionais e melhoram o modelo. */
+export const REQUIRED_ANGLES: readonly PhotoAngle[] = ['FRONT', 'LEFT_45', 'RIGHT_45', 'LEFT_90', 'RIGHT_90'];
+export const OPTIONAL_ANGLES: readonly PhotoAngle[] = PhotoAngle.options.filter((a) => !REQUIRED_ANGLES.includes(a));
+/** Máximo de fotos por captura (uma por vista). */
+export const MAX_PHOTOS = 10;
+/** O worker de reconstrução aceita de 5 a 10 vistas. */
+export const WORKER_VIEWS = { min: 5, max: 10 } as const;
+
 /** Rosto ocupando entre 40% e 70% da altura da foto. */
 export const FACE_HEIGHT_RANGE = { min: 0.4, max: 0.7 } as const;
 /** Variância do Laplaciano mínima (imagem reduzida a 256 px, tons de cinza 0–255). */
@@ -75,6 +120,8 @@ export const PhotoRegister = z.object({
   width: z.number().int().min(64).max(8192),
   height: z.number().int().min(64).max(8192),
   yawDeg: z.number().min(-180).max(180).nullable(),
+  /** Inclinação da cabeça (positivo = queixo para cima). Opcional. */
+  pitchDeg: z.number().min(-90).max(90).nullable().optional(),
   sharpness: z.number().min(0).nullable(),
   faceDetected: z.boolean(),
   faceHeightRatio: z.number().min(0).max(2).nullable(),
@@ -100,6 +147,7 @@ export interface CapturePhoto {
   width: number | null;
   height: number | null;
   yawDeg: number | null;
+  pitchDeg?: number | null;
   sharpness: number | null;
   faceDetected: boolean | null;
   validation: PhotoValidation;
@@ -177,4 +225,11 @@ export interface CaptureSummary {
 export function yawInRange(angle: PhotoAngle, yaw: number) {
   const r = ANGLE_RULES[angle];
   return yaw >= r.yawMin && yaw <= r.yawMax;
+}
+
+/** Vistas de queixo exigem inclinação na faixa; as demais não olham a inclinação. */
+export function pitchInRange(angle: PhotoAngle, pitch: number) {
+  const r = ANGLE_RULES[angle];
+  if (r.pitchMin === undefined || r.pitchMax === undefined) return true;
+  return pitch >= r.pitchMin && pitch <= r.pitchMax;
 }

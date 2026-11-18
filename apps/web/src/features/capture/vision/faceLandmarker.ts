@@ -1,5 +1,5 @@
 import type { FaceLandmarker as FL, FaceLandmarkerResult } from '@mediapipe/tasks-vision';
-import { faceBox, laplacianVariance, toGray, yawFromMatrix, type FrameAnalysis } from './analysis';
+import { faceBox, laplacianVariance, toGray, pitchFromMatrix, yawFromMatrix, type FrameAnalysis } from './analysis';
 
 /**
  * MediaPipe Face Landmarker rodando NO NAVEGADOR: as imagens não saem do aparelho.
@@ -82,12 +82,13 @@ export function analyzeResult(result: FaceLandmarkerResult | null, sharpness: nu
   const lm = result?.faceLandmarks[0];
   const matrix = result?.facialTransformationMatrixes?.[0];
   if (!lm || lm.length === 0) {
-    return { faceDetected: false, yawDeg: null, faceHeightRatio: null, centerOffset: null, sharpness, landmarks: null };
+    return { faceDetected: false, yawDeg: null, pitchDeg: null, faceHeightRatio: null, centerOffset: null, sharpness, landmarks: null };
   }
   const box = faceBox(lm);
   return {
     faceDetected: true,
     yawDeg: matrix ? yawFromMatrix(matrix.data) : null,
+    pitchDeg: matrix ? pitchFromMatrix(matrix.data) : null,
     faceHeightRatio: box.heightRatio,
     centerOffset: Math.hypot(box.centerX - 0.5, box.centerY - 0.5),
     sharpness,

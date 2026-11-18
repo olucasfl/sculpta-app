@@ -36,7 +36,7 @@ export function CaptureTips() {
 }
 
 /** Guia de enquadramento sobre a câmera: oval alvo (40–70% da altura) e direção do giro. */
-export function AngleGuide({ angle, ready }: { angle: PhotoAngle; ready: boolean }) {
+export function AngleGuide({ angle, ready, progress = 0 }: { angle: PhotoAngle; ready: boolean; progress?: number }) {
   const rule = ANGLE_RULES[angle];
   const target = (rule.yawMin + rule.yawMax) / 2;
   const color = ready ? '#067647' : '#ffffff';
@@ -50,6 +50,18 @@ export function AngleGuide({ angle, ready }: { angle: PhotoAngle; ready: boolean
       </defs>
       <rect width="300" height="400" fill="rgb(0 0 0 / 0.28)" mask="url(#guide-hole)" />
       <ellipse cx="150" cy="195" rx="85" ry="115" fill="none" stroke={color} strokeWidth="3" strokeDasharray={ready ? undefined : '8 6'} />
+      {/* Anel de contagem da foto automática */}
+      {progress > 0 && (
+        <ellipse cx="150" cy="195" rx="93" ry="123" fill="none" stroke="#5eead4" strokeWidth="6" strokeLinecap="round" pathLength={100} strokeDasharray={`${Math.round(progress * 100)} 100`} transform="rotate(-90 150 195)" />
+      )}
+      {/* Mira: ponto no centro do rosto alvo */}
+      <circle cx="150" cy="195" r="4" fill={color} opacity="0.8" />
+      {rule.pitchMin !== undefined && rule.pitchMin > 0 && (
+        <path d="M 150 50 L 150 20 M 138 32 L 150 20 L 162 32" stroke="white" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      )}
+      {rule.pitchMax !== undefined && rule.pitchMax < 0 && (
+        <path d="M 150 340 L 150 370 M 138 358 L 150 370 L 162 358" stroke="white" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      )}
       {target !== 0 && (
         <g transform={`translate(150 360) scale(${target > 0 ? -1 : 1} 1)`}>
           <path d="M -40 0 L 30 0 M 18 -12 L 32 0 L 18 12" stroke="white" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" />

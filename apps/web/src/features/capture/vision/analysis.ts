@@ -3,6 +3,7 @@ import {
   FACE_HEIGHT_RANGE,
   PHOTO_MAX_SIDE,
   SHARPNESS_MIN,
+  pitchInRange,
   yawInRange,
   type PhotoAngle,
 } from '@sim/contracts';
@@ -13,6 +14,8 @@ import {
  * [validar com câmera real] Se a liberação acontecer no lado trocado, inverta este sinal.
  */
 export const YAW_SIGN = -1;
+/** Sinal da inclinação (positivo = queixo para cima). [validar com câmera real] Se "queixo para cima" for reconhecido ao abaixar, inverta. */
+export const PITCH_SIGN = 1;
 
 /** Yaw em graus a partir da matriz 4x4 (column-major) `facialTransformationMatrixes`. */
 export function yawFromMatrix(m: ArrayLike<number>): number {
@@ -20,6 +23,12 @@ export function yawFromMatrix(m: ArrayLike<number>): number {
   const sin = m[8] ?? 0;
   const cos = m[10] ?? 1;
   return YAW_SIGN * ((Math.atan2(sin, cos) * 180) / Math.PI);
+}
+
+/** Inclinação em graus a partir da mesma matriz: R(1,2) = -sen(pitch). */
+export function pitchFromMatrix(m: ArrayLike<number>): number {
+  const s = Math.max(-1, Math.min(1, -(m[9] ?? 0)));
+  return PITCH_SIGN * ((Math.asin(s) * 180) / Math.PI);
 }
 
 export interface Point {
@@ -77,13 +86,14 @@ export function fitWithin(width: number, height: number, max = PHOTO_MAX_SIDE) {
 export interface FrameAnalysis {
   faceDetected: boolean;
   yawDeg: number | null;
+  pitchDeg?: number | null;
   faceHeightRatio: number | null;
   centerOffset: number | null;
   sharpness: number | null;
 }
 
 export interface Check {
-  id: 'face' | 'angle' | 'size' | 'center' | 'sharp';
+  id: 'face' | 'angle' | 'pitch' | 'size' | 'center' | 'sharp';
   ok: boolean;
   label: string;
   hint?: string;
@@ -108,6 +118,17 @@ export function evaluate(angle: PhotoAngle, a: FrameAnalysis): { checks: Check[]
       ok,
       label: `Ângulo ${Math.round(Math.abs(a.yawDeg))}° (alvo ${rule.yawMin < 0 && rule.yawMax > 0 ? `até ${rule.yawMax}°` : `${Math.min(Math.abs(rule.yawMin), Math.abs(rule.yawMax))}–${Math.max(Math.abs(rule.yawMin), Math.abs(rule.yawMax))}°`})`,
       hint: ok ? undefined : `Vire um pouco para a ${turnLeft ? 'esquerda' : 'direita'} do paciente.`,
+    });
+  }
+  if (a.faceDetected && rule.pitchMin !== undefined && rule.pitchMax !== undefined) {
+    const p = a.pitchDeg ?? null;
+    const ok = p !== null && pitchInRange(angle, p);
+    const up = rule.pitchMin > 0;
+    checks.push({
+      id: 'pitch',
+      ok,
+      label: p === null ? 'Inclinação não medida' : `Inclinação ${Math.round(p)}° (alvo ${rule.pitchMin}° a ${rule.pitchMax}°)`,
+      hint: ok ? undefined : p === null ? 'Mantenha o rosto visível.' : (p < rule.pitchMin) === up ? (up ? 'Levante mais o queixo.' : 'Abaixe mais o queixo.') : up ? 'Abaixe um pouco o queixo.' : 'Levante um pouco o queixo.',
     });
   }
   if (a.faceDetected && a.faceHeightRatio !== null) {

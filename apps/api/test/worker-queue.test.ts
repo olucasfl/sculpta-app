@@ -86,7 +86,7 @@ describe('fila + worker', () => {
     await queue.drain();
     const r = await get(id);
     expect(r).toMatchObject({ status: 'DONE', source: 'VGGTFACE', qualityScore: 0.87, attempts: 1 });
-    expect(worker.state.downloaded).toBe(5);
+    expect(worker.state.downloaded).toBe(PhotoAngle.options.length);
     expect(worker.state.badSignatures).toBe(0);
     const mesh = await h.http().get(r.meshUrl).responseType('blob').expect(200);
     expect(mesh.headers['content-type']).toBe('model/gltf-binary');
