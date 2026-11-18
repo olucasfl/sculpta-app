@@ -1,7 +1,7 @@
 import { Environment, Lightformer, OrbitControls, useGLTF } from '@react-three/drei';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import type { FaceRegion, SimulationParams } from '@sim/contracts';
-import { forwardRef, Suspense, type ComponentRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
+import { forwardRef, Suspense, type ComponentRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 
 export type CompareMode = 'off' | 'curtain' | 'side' | 'hold';
@@ -57,6 +57,15 @@ interface Props {
   viewNonce: number;
   onRegionPick: (region: FaceRegion) => void;
   onLoaded?: (info: ModelInfo) => void;
+  /** Modo modelar: arrastar sobre o rosto (mouse, caneta, dedo) chama estes callbacks em vez de girar a câmera. */
+  sculpt?: SculptHandlers;
+}
+
+export interface SculptHandlers {
+  start(region: FaceRegion, upperHalf: boolean): void;
+  /** Deslocamento desde o último evento (px), pressão da caneta (1 = mouse/dedo) e posição na tela. */
+  move(dx: number, dy: number, pressure: number, clientX: number, clientY: number): void;
+  end(): void;
 }
 
 interface Shared {
@@ -76,8 +85,9 @@ export const FaceViewer = forwardRef<ViewerHandle, Props>(function FaceViewer(pr
       dpr={[1, 2]}
       gl={{ antialias: true, alpha: true, preserveDrawingBuffer: false }}
       camera={{ fov: 30, near: 0.01, far: 10, position: [0, TARGET.y, DISTANCE] }}
-      aria-label="Modelo 3D do rosto. Arraste para girar, use a roda para aproximar."
+      aria-label="Modelo 3D do rosto. No modo modelar, arraste sobre uma região para ajustá-la; no modo girar, arraste para girar. A roda aproxima."
       role="img"
+      style={{ touchAction: 'none', cursor: 'grab' }}
     >
       <hemisphereLight args={['#ffffff', '#b9b2aa', 0.6]} />
       <directionalLight position={[0.4, 0.5, 0.8]} intensity={1.6} />
@@ -104,10 +114,14 @@ function FaceModel({
   wireframe,
   onRegionPick,
   onLoaded,
+  sculpt,
   shared,
 }: Props & { shared: React.RefObject<Shared> }) {
   const gltf = useGLTF(url);
   const invalidate = useThree((s) => s.invalidate);
+  const gl = useThree((s) => s.gl);
+  const [hover, setHover] = useState<FaceRegion | null>(null);
+  const dragging = useRef(false);
 
   const { mesh, eyes, regionAttrs } = useMemo(() => {
     let source: THREE.Mesh | null = null;
@@ -178,37 +192,159 @@ function FaceModel({
           if (w > 0.02) c.lerp(tints[r], Math.min(0.55, w * 0.55));
         }
       }
-      if (highlight) {
-        const a = regionAttrs.get(highlight);
+      const active = hover ?? highlight;
+      if (active) {
+        const a = regionAttrs.get(active);
         const w = a ? a.getX(v) : 0;
-        if (w > 0) c.lerp(ACCENT, Math.min(0.6, w * 0.6));
+        if (w > 0) c.lerp(ACCENT, Math.min(hover && hover !== highlight ? 0.35 : 0.6, w * 0.6));
       }
       color.setXYZ(v, c.r, c.g, c.b);
     }
     color.needsUpdate = true;
     invalidate();
-  }, [mesh, regionAttrs, highlight, showRegions, invalidate]);
+  }, [mesh, regionAttrs, highlight, hover, showRegions, invalidate]);
+
+  useEffect(() => {
+    if (!sculpt) setHover(null);
+  }, [sculpt]);
+
+  // Modelar: sobre o rosto o arrasto modela; fora dele a câmera gira. Antes de a câmera
+  // (OrbitControls) ver o clique, decidimos se ele caiu no rosto e a desligamos só nesse caso.
+  const camera = useThree((s) => s.camera);
+  const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
+  useEffect(() => {
+    const el = gl.domElement;
+    if (controls) controls.enabled = true;
+    if (!sculpt) {
+      el.style.cursor = 'grab';
+      return;
+    }
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    const overFace = (ev: PointerEvent) => {
+      const rect = el.getBoundingClientRect();
+      ndc.set(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
+      ray.setFromCamera(ndc, camera);
+      const hit = ray.intersectObject(mesh, false)[0];
+      // Só conta como "rosto" onde existe região modelável; testa/orelha continuam girando.
+      return !!hit?.face && regionAt(hit.face) !== null;
+    };
+    const down = (ev: PointerEvent) => {
+      if (controls) controls.enabled = !overFace(ev);
+    };
+    const release = () => {
+      if (controls) controls.enabled = true;
+    };
+    const move = (ev: PointerEvent) => {
+      if (ev.buttons === 0) el.style.cursor = overFace(ev) ? 'crosshair' : 'grab';
+    };
+    el.addEventListener('pointerdown', down, true);
+    el.addEventListener('pointerup', release);
+    el.addEventListener('pointercancel', release);
+    el.addEventListener('pointermove', move);
+    return () => {
+      el.removeEventListener('pointerdown', down, true);
+      el.removeEventListener('pointerup', release);
+      el.removeEventListener('pointercancel', release);
+      el.removeEventListener('pointermove', move);
+      if (controls) controls.enabled = true;
+      el.style.cursor = 'grab';
+    };
+    // regionAt só lê regionAttrs, que muda junto com mesh
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sculpt, gl, camera, controls, mesh]);
 
   useEffect(() => {
     (mesh.material as THREE.MeshPhysicalMaterial).wireframe = wireframe;
     invalidate();
   }, [mesh, wireframe, invalidate]);
 
-  function pick(e: ThreeEvent<MouseEvent>) {
-    if (e.delta > 4 || !e.face) return;
-    e.stopPropagation();
+  function regionAt(face: { a: number; b: number; c: number }): FaceRegion | null {
     let best: FaceRegion | null = null;
     let bestW = 0.15;
     for (const [r, a] of regionAttrs) {
-      const w = (a.getX(e.face.a) + a.getX(e.face.b) + a.getX(e.face.c)) / 3;
+      const w = (a.getX(face.a) + a.getX(face.b) + a.getX(face.c)) / 3;
       if (w > bestW) [best, bestW] = [r, w];
     }
+    return best;
+  }
+
+  function pick(e: ThreeEvent<MouseEvent>) {
+    if (sculpt || e.delta > 4 || !e.face) return;
+    e.stopPropagation();
+    const best = regionAt(e.face);
     if (best) onRegionPick(best);
+  }
+
+  // Centro vertical de cada região: decide se o toque foi na metade de cima (ex.: lábio superior).
+  const centers = useMemo(() => {
+    const pos = mesh.geometry.getAttribute('position');
+    const out = new Map<FaceRegion, number>();
+    for (const [r, a] of regionAttrs) {
+      let sum = 0;
+      let wsum = 0;
+      for (let v = 0; v < pos.count; v++) {
+        const w = a.getX(v);
+        if (w > 0.05) {
+          sum += w * pos.getY(v);
+          wsum += w;
+        }
+      }
+      if (wsum > 0) out.set(r, sum / wsum);
+    }
+    return out;
+  }, [mesh, regionAttrs]);
+
+  function sculptDown(e: ThreeEvent<PointerEvent>) {
+    if (!sculpt || !e.face || e.nativeEvent.button > 0) return;
+    const region = regionAt(e.face);
+    if (!region) return;
+    e.stopPropagation();
+    const el = gl.domElement;
+    const id = e.nativeEvent.pointerId;
+    let lastX = e.nativeEvent.clientX;
+    let lastY = e.nativeEvent.clientY;
+    el.setPointerCapture(id);
+    dragging.current = true;
+    onRegionPick(region);
+    sculpt.start(region, e.point.y >= (centers.get(region) ?? e.point.y));
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== id) return;
+      const pressure = ev.pointerType === 'pen' ? Math.max(0.2, (ev.pressure || 0.5) * 2) : 1;
+      sculpt.move(ev.clientX - lastX, ev.clientY - lastY, pressure, ev.clientX, ev.clientY);
+      lastX = ev.clientX;
+      lastY = ev.clientY;
+    };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== id) return;
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      if (el.hasPointerCapture(id)) el.releasePointerCapture(id);
+      dragging.current = false;
+      sculpt.end();
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  }
+
+  function sculptHover(e: ThreeEvent<PointerEvent>) {
+    if (!sculpt || dragging.current || !e.face) return;
+    e.stopPropagation();
+    const r = regionAt(e.face);
+    setHover((cur) => (cur === r ? cur : r));
   }
 
   return (
     <group>
-      <primitive object={mesh} onClick={pick} />
+      <primitive
+        object={mesh}
+        onClick={pick}
+        onPointerDown={sculptDown}
+        onPointerMove={sculptHover}
+        onPointerOut={() => !dragging.current && setHover(null)}
+      />
       {eyes?.centers.map((p, i) => (
         <mesh key={i} position={p}>
           <sphereGeometry args={[eyes.radius, 32, 24]} />
@@ -360,10 +496,8 @@ function Rig({
       enableDamping={false}
       minDistance={0.35}
       maxDistance={1.1}
-      minAzimuthAngle={-Math.PI / 2 - 0.2}
-      maxAzimuthAngle={Math.PI / 2 + 0.2}
-      minPolarAngle={Math.PI / 3}
-      maxPolarAngle={(2 * Math.PI) / 3}
+      minPolarAngle={0.15}
+      maxPolarAngle={Math.PI - 0.15}
       onStart={() => (goal.current = null)}
     />
   );

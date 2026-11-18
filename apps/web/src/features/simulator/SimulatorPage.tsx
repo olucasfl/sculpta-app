@@ -5,22 +5,27 @@ import {
   SLIDERS,
   type FaceRegion,
   type SimulationVersion,
+  type SliderId,
 } from '@sim/contracts';
 import {
   ChevronLeft,
   Columns2,
+  Crosshair,
   Download,
   Eye,
   Grid3x3,
+  History as HistoryIcon,
   Info,
   Layers,
+  Move3d,
+  PenTool,
   Redo2,
   RotateCcw,
   Save,
   SplitSquareHorizontal,
   Undo2,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { Link, useBlocker, useParams } from 'react-router';
 import { Button } from '../../components/ui/Button';
 import { Badge, Card } from '../../components/ui/Card';
@@ -33,13 +38,15 @@ import { useAuth } from '../../lib/auth-store';
 import { cn, formatDateTime } from '../../lib/format';
 import { useReconstruction } from '../capture/queries';
 import { buildExportImage, download, EXPORT_VIEWS, thumbnail } from './exportImage';
-import { FaceViewer, type CompareMode, type ModelInfo, type ViewerHandle, type ViewName } from './FaceViewer';
+import { brushTargets, PIXELS_PER_UNIT } from './brush';
+import { FaceViewer, type CompareMode, type ModelInfo, type SculptHandlers, type ViewerHandle, type ViewName } from './FaceViewer';
 import { apply, commit, emptyHistory, redo, regionHasChanges, resetRegion, setLive, undo, type History } from './history';
 import { logExport, useSaveVersion, useSimulation } from './queries';
 import { SliderControl } from './SliderControl';
 import { SourceBadge } from './SourceBadge';
 
-const TEMPLATE_URL = '/models/template-head.glb';
+const GLASS = 'rounded-2xl border border-line bg-surface/85 shadow-pop backdrop-blur-md';
+const TEMPLATE_URL ='/models/template-head.glb';
 const REGION_PRESET: Record<FaceRegion, string> = {
   nose: 'nose',
   lips: 'lips',
@@ -85,6 +92,9 @@ export function SimulatorPage() {
   const [info, setInfo] = useState<ModelInfo | null>(null);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [sculptMode, setSculptMode] = useState(true);
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [hud, setHud] = useState<{ x: number; y: number; ids: SliderId[] } | null>(null);
   const loadedVersion = useRef(false);
 
   // Abre a versão mais recente, se houver.
@@ -117,6 +127,32 @@ export function SimulatorPage() {
   }, []);
   const onLoaded = useCallback((i: ModelInfo) => setInfo(i), []);
 
+  // Modelagem direta: arrastar sobre o rosto move os sliders da região (ver brush.ts).
+  const brush = useRef<{ v: SliderId; h?: SliderId } | null>(null);
+  const sculptHandlers = useMemo<SculptHandlers>(
+    () => ({
+      start: (region, upper) => {
+        brush.current = brushTargets(region, upper);
+      },
+      move: (dx, dy, pressure, x, y) => {
+        const t = brush.current;
+        if (!t) return;
+        setHistory((h) => {
+          let n = setLive(h, t.v, (h.live[t.v] ?? 0) - (dy / PIXELS_PER_UNIT) * pressure);
+          if (t.h) n = setLive(n, t.h, (n.live[t.h] ?? 0) + (dx / PIXELS_PER_UNIT) * pressure);
+          return n;
+        });
+        setHud({ x, y, ids: t.h ? [t.v, t.h] : [t.v] });
+      },
+      end: () => {
+        brush.current = null;
+        setHistory(commit);
+        setHud(null);
+      },
+    }),
+    [],
+  );
+
   if (sim.isPending || (sim.data && rec.isPending)) return <Loading label="Carregando simulação…" />;
   if (sim.isError) return <ErrorState error={sim.error} onRetry={() => sim.refetch()} />;
   if (rec.isError) return <ErrorState error={rec.error} onRetry={() => rec.refetch()} />;
@@ -130,19 +166,50 @@ export function SimulatorPage() {
   const isDemo = r.source === 'TEMPLATE' || info?.kind === 'TEMPLATE';
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <Link to={`/patients/${s.patientId}`} className="inline-flex items-center gap-1 text-sm text-muted hover:text-ink">
-            <ChevronLeft className="size-4" aria-hidden /> {s.patientName}
+    <div className="fixed inset-0 z-40 overflow-hidden bg-[#e9eae5]">
+      <ViewerArea
+        compare={compare}
+        curtain={curtain}
+        setCurtain={setCurtain}
+        showOriginal={showOriginal}
+        setShowOriginal={setShowOriginal}
+      >
+        <FaceViewer
+          ref={viewer}
+          url={modelUrl}
+          params={history.live}
+          highlight={highlight}
+          showRegions={showRegions}
+          wireframe={wireframe}
+          compare={compare}
+          curtain={curtain}
+          showOriginal={showOriginal}
+          view={view}
+          viewNonce={viewNonce}
+          onRegionPick={onRegionPick}
+          onLoaded={onLoaded}
+          sculpt={sculptMode && canWrite ? sculptHandlers : undefined}
+        />
+        {!info && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Loading label="Carregando modelo 3D…" />
+          </div>
+        )}
+      </ViewerArea>
+
+      {/* Barra superior */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-wrap items-start justify-between gap-2 p-3">
+        <div className={cn(GLASS, 'pointer-events-auto px-3 py-2')}>
+          <Link to={`/patients/${s.patientId}`} className="inline-flex items-center gap-1 text-xs text-muted hover:text-ink">
+            <ChevronLeft className="size-3.5" aria-hidden /> {s.patientName}
           </Link>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight">{s.name}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-sm font-semibold tracking-tight">{s.name}</h1>
             <SourceBadge source={r.source} qualityScore={r.qualityScore} />
-            {dirty && <Badge>Alterações não salvas</Badge>}
+            {dirty && <Badge>Não salvo</Badge>}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className={cn(GLASS, 'pointer-events-auto flex flex-wrap items-center gap-1.5 p-1.5')}>
           <Button variant="secondary" size="sm" aria-label="Desfazer" title="Desfazer" disabled={!history.past.length} onClick={() => setHistory(undo)}>
             <Undo2 className="size-4" aria-hidden />
           </Button>
@@ -152,9 +219,12 @@ export function SimulatorPage() {
           <Button variant="secondary" size="sm" icon={<RotateCcw className="size-4" aria-hidden />} disabled={!Object.keys(history.live).length} onClick={() => setHistory((h) => apply(h, {}))}>
             Restaurar tudo
           </Button>
+          <Button variant="secondary" size="sm" icon={<HistoryIcon className="size-4" aria-hidden />} onClick={() => setVersionsOpen((v) => !v)} aria-pressed={versionsOpen}>
+            Versões
+          </Button>
           {canWrite && (
             <Button size="sm" icon={<Save className="size-4" aria-hidden />} onClick={() => setSaving(true)}>
-              Salvar versão
+              Salvar
             </Button>
           )}
           {can(role, 'simulations.export') && (
@@ -165,155 +235,66 @@ export function SimulatorPage() {
         </div>
       </div>
 
-      <p className="flex items-start gap-2 rounded-lg border border-warn/20 bg-warn-soft px-3 py-2 text-xs text-warn">
-        <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        <span>
-          {SIMULATION_DISCLAIMER}
-          {isDemo && ' Este é um modelo genérico de demonstração: não representa o rosto do paciente.'}
-        </span>
-      </p>
-
-      <div className="grid gap-4 xl:grid-cols-[14rem_minmax(0,1fr)_19rem] lg:grid-cols-[minmax(0,1fr)_19rem]">
-        <Card className="p-3 lg:col-span-2 xl:col-span-1">
-          <p className="px-2 pb-2 text-xs font-medium uppercase tracking-wide text-faint">Procedimento</p>
-          <ul className="grid grid-cols-2 gap-1 sm:grid-cols-3 xl:grid-cols-1">
-            {PROCEDURE_PRESETS.map((p) => {
-              const changed = SLIDERS.some((x) => (p.sliders as readonly string[]).includes(x.id) && (history.live[x.id] ?? 0) !== 0);
-              return (
-                <li key={p.id}>
-                  <button
-                    type="button"
-                    aria-pressed={p.id === presetId}
-                    onClick={() => {
-                      setPresetId(p.id);
-                      setHighlight(SLIDERS.find((x) => x.id === p.sliders[0])?.region ?? null);
-                    }}
-                    className={cn(
-                      'flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-medium',
-                      p.id === presetId ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle hover:text-ink',
-                    )}
-                  >
-                    {p.label}
-                    {changed && <span className="size-2 rounded-full bg-accent" aria-label="com alterações" />}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="mt-3 px-2 text-xs text-muted">Dica: clique numa região do rosto para abrir os controles dela.</p>
-        </Card>
-
-        <Card className="relative overflow-hidden">
-          <ViewerArea
-            compare={compare}
-            curtain={curtain}
-            setCurtain={setCurtain}
-            showOriginal={showOriginal}
-            setShowOriginal={setShowOriginal}
-          >
-            <FaceViewer
-              ref={viewer}
-              url={modelUrl}
-              params={history.live}
-              highlight={highlight}
-              showRegions={showRegions}
-              wireframe={wireframe}
-              compare={compare}
-              curtain={curtain}
-              showOriginal={showOriginal}
-              view={view}
-              viewNonce={viewNonce}
-              onRegionPick={onRegionPick}
-              onLoaded={onLoaded}
-            />
-            {!info && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <Loading label="Carregando modelo 3D…" />
-              </div>
-            )}
-          </ViewerArea>
-
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-3 py-2">
-            <div role="group" aria-label="Vistas" className="flex flex-wrap gap-1">
-              {VIEWS.map((v) => (
-                <button
-                  key={v.id}
-                  type="button"
-                  aria-pressed={view === v.id}
-                  onClick={() => goTo(v.id)}
-                  className={cn('rounded-md px-2.5 py-1 text-xs font-medium', view === v.id ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle hover:text-ink')}
-                >
-                  {v.label}
-                </button>
-              ))}
-            </div>
-            <div className="flex flex-wrap items-center gap-1">
-              <div role="group" aria-label="Comparação" className="flex gap-1 rounded-lg bg-subtle p-0.5">
-                {COMPARE.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    aria-pressed={compare === c.id}
-                    title={c.label}
-                    onClick={() => setCompare(c.id)}
-                    className={cn('inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium', compare === c.id ? 'bg-surface text-ink shadow-card' : 'text-muted hover:text-ink')}
-                  >
-                    {c.icon}
-                    <span className="hidden sm:inline">{c.label}</span>
-                  </button>
-                ))}
-              </div>
-              <button type="button" aria-pressed={showRegions} onClick={() => setShowRegions((v) => !v)} title="Mostrar regiões" className={cn('rounded-md p-1.5', showRegions ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle')}>
-                <Layers className="size-4" aria-hidden />
-                <span className="sr-only">Mostrar regiões</span>
+      {/* Procedimentos: faixa à esquerda, junto do rosto */}
+      <ul className={cn(GLASS, 'absolute left-3 top-24 z-20 flex flex-col gap-1 p-1.5 max-md:inset-x-3 max-md:top-[4.75rem] max-md:flex-row max-md:overflow-x-auto')}>
+        {PROCEDURE_PRESETS.map((p) => {
+          const changed = SLIDERS.some((x) => (p.sliders as readonly string[]).includes(x.id) && (history.live[x.id] ?? 0) !== 0);
+          return (
+            <li key={p.id}>
+              <button
+                type="button"
+                aria-pressed={p.id === presetId}
+                onClick={() => {
+                  setPresetId(p.id);
+                  setHighlight(SLIDERS.find((x) => x.id === p.sliders[0])?.region ?? null);
+                }}
+                className={cn(
+                  'flex w-full items-center justify-between gap-3 whitespace-nowrap rounded-lg px-3 py-1.5 text-left text-sm font-medium',
+                  p.id === presetId ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle hover:text-ink',
+                )}
+              >
+                {p.label}
+                {changed && <span className="size-2 rounded-full bg-primary-600" aria-label="com alterações" />}
               </button>
-              <button type="button" aria-pressed={wireframe} onClick={() => setWireframe((v) => !v)} title="Malha (wireframe)" className={cn('rounded-md p-1.5', wireframe ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle')}>
-                <Grid3x3 className="size-4" aria-hidden />
-                <span className="sr-only">Malha (wireframe)</span>
-              </button>
-              <button type="button" onClick={() => goTo('FRONT')} title="Recentralizar câmera" className="rounded-md p-1.5 text-muted hover:bg-subtle">
-                <RotateCcw className="size-4" aria-hidden />
-                <span className="sr-only">Recentralizar câmera</span>
-              </button>
-            </div>
-          </div>
-          {info && (
-            <p className="border-t border-line px-3 py-1.5 text-[11px] text-faint">
-              {info.kind === 'TEMPLATE' ? 'Template genérico' : 'Malha reconstruída'} · {info.vertices.toLocaleString('pt-BR')} vértices · {info.sliders.length} bases de deformação
-            </p>
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* Controles da região: flutuam sobre a imagem, o resultado aparece na hora */}
+      <div className={cn(GLASS, 'absolute right-3 top-24 z-20 max-h-[calc(100%-10.5rem)] w-72 overflow-y-auto p-4 max-md:inset-x-3 max-md:bottom-24 max-md:top-auto max-md:max-h-[38%] max-md:w-auto')}>
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="font-semibold">{preset.label}</h2>
+          {regionsInPreset.some((rg) => regionHasChanges(history.live, rg)) && (
+            <Button size="sm" variant="ghost" onClick={() => setHistory((h) => regionsInPreset.reduce((acc, rg) => resetRegion(acc, rg), h))}>
+              Restaurar
+            </Button>
           )}
-        </Card>
-
+        </div>
+        <p className="mb-3 text-xs text-muted">{preset.description}</p>
         <div className="flex flex-col gap-4">
-          <Card className="p-4">
-            <div className="mb-1 flex items-center justify-between">
-              <h2 className="font-semibold">{preset.label}</h2>
-              {regionsInPreset.some((rg) => regionHasChanges(history.live, rg)) && (
-                <Button size="sm" variant="ghost" onClick={() => setHistory((h) => regionsInPreset.reduce((acc, rg) => resetRegion(acc, rg), h))}>
-                  Restaurar região
-                </Button>
-              )}
-            </div>
-            <p className="mb-4 text-sm text-muted">{preset.description}</p>
-            <div className="flex flex-col gap-5">
-              {sliders.map((x) => (
-                <SliderControl
-                  key={x.id}
-                  label={x.label}
-                  min={x.min}
-                  value={history.live[x.id] ?? 0}
-                  onChange={(v) => setHistory((h) => setLive(h, x.id, v))}
-                  onCommit={() => setHistory(commit)}
-                  onFocusRegion={() => setHighlight(x.region)}
-                />
-              ))}
-            </div>
-            <p className="mt-4 rounded-lg bg-subtle px-3 py-2 text-xs text-muted">
-              <strong className="font-medium text-ink">Limitação:</strong> {preset.limitation} Os controles não têm unidade e não indicam
-              produto, quantidade ou técnica.
-            </p>
-          </Card>
+          {sliders.map((x) => (
+            <SliderControl
+              key={x.id}
+              label={x.label}
+              min={x.min}
+              value={history.live[x.id] ?? 0}
+              onChange={(v) => setHistory((h) => setLive(h, x.id, v))}
+              onCommit={() => setHistory(commit)}
+              onFocusRegion={() => setHighlight(x.region)}
+            />
+          ))}
+        </div>
+        <details className="mt-3 text-xs text-muted">
+          <summary className="cursor-pointer font-medium text-ink">Limitação</summary>
+          <p className="mt-1">
+            {preset.limitation} Os controles não têm unidade e não indicam produto, quantidade ou técnica.
+          </p>
+        </details>
+      </div>
 
+      {versionsOpen && (
+        <div className="absolute right-3 top-16 z-30 w-80 max-md:inset-x-3 max-md:w-auto">
           <VersionsCard
             versions={s.versions}
             onLoad={(v) => {
@@ -322,6 +303,85 @@ export function SimulatorPage() {
             }}
           />
         </div>
+      )}
+
+      {/* Valor ao vivo junto da ponta da caneta/cursor */}
+      {hud && (
+        <div className="pointer-events-none fixed z-30 rounded-lg bg-ink/85 px-2.5 py-1.5 text-xs text-white shadow-pop" style={{ left: hud.x + 18, top: hud.y + 18 }}>
+          {hud.ids.map((sid) => {
+            const def = SLIDERS.find((x) => x.id === sid)!;
+            const v = history.live[sid] ?? 0;
+            const sign = def.min < 0 ? (v > 0 ? '+' : v < 0 ? '−' : '') : '';
+            return (
+              <div key={sid} className="flex justify-between gap-4 tabular-nums">
+                <span>{def.label}</span>
+                <span>{`${sign}${Math.round(Math.abs(v) * 100)}%`}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Barra inferior: modo, vistas e comparação */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-1.5 p-3">
+        <div className={cn(GLASS, 'pointer-events-auto flex flex-wrap items-center justify-center gap-2 px-2 py-1.5')}>
+          <div role="group" aria-label="Modo" className="flex gap-1 rounded-lg bg-subtle p-0.5">
+            <button type="button" aria-pressed={sculptMode} disabled={!canWrite} onClick={() => setSculptMode(true)} className={cn('inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium disabled:opacity-40', sculptMode ? 'bg-primary-600 text-white shadow-card' : 'text-muted hover:text-ink')}>
+              <PenTool className="size-4" aria-hidden /> Modelar
+            </button>
+            <button type="button" aria-pressed={!sculptMode} onClick={() => setSculptMode(false)} className={cn('inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium', !sculptMode ? 'bg-surface text-ink shadow-card' : 'text-muted hover:text-ink')}>
+              <Move3d className="size-4" aria-hidden /> Girar
+            </button>
+          </div>
+          <div role="group" aria-label="Vistas" className="flex flex-wrap gap-1">
+            {VIEWS.map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                aria-pressed={view === v.id}
+                onClick={() => goTo(v.id)}
+                className={cn('rounded-md px-2.5 py-1 text-xs font-medium', view === v.id ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle hover:text-ink')}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+          <div role="group" aria-label="Comparação" className="flex gap-1 rounded-lg bg-subtle p-0.5">
+            {COMPARE.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                aria-pressed={compare === c.id}
+                title={c.label}
+                onClick={() => setCompare(c.id)}
+                className={cn('inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium', compare === c.id ? 'bg-surface text-ink shadow-card' : 'text-muted hover:text-ink')}
+              >
+                {c.icon}
+                <span className="hidden lg:inline">{c.label}</span>
+              </button>
+            ))}
+          </div>
+          <button type="button" aria-pressed={showRegions} onClick={() => setShowRegions((v) => !v)} title="Mostrar regiões" className={cn('rounded-md p-1.5', showRegions ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle')}>
+            <Layers className="size-4" aria-hidden />
+            <span className="sr-only">Mostrar regiões</span>
+          </button>
+          <button type="button" aria-pressed={wireframe} onClick={() => setWireframe((v) => !v)} title="Malha (wireframe)" className={cn('rounded-md p-1.5', wireframe ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle')}>
+            <Grid3x3 className="size-4" aria-hidden />
+            <span className="sr-only">Malha (wireframe)</span>
+          </button>
+          <button type="button" onClick={() => goTo('FRONT')} title="Recentralizar câmera" className="rounded-md p-1.5 text-muted hover:bg-subtle">
+            <Crosshair className="size-4" aria-hidden />
+            <span className="sr-only">Recentralizar câmera</span>
+          </button>
+        </div>
+        <p className="pointer-events-none flex max-w-3xl items-start gap-1.5 px-2 text-center text-xs text-muted">
+          <Info className="mt-0.5 size-3 shrink-0" aria-hidden />
+          <span>
+            {SIMULATION_DISCLAIMER}
+            {isDemo && ' Modelo genérico de demonstração: não representa o rosto do paciente.'}
+            {info && ` · ${info.vertices.toLocaleString('pt-BR')} vértices`}
+          </span>
+        </p>
       </div>
 
       <SaveVersionDialog
@@ -408,7 +468,7 @@ function ViewerArea({
   };
 
   return (
-    <div ref={area} className="relative h-[min(68vh,620px)] min-h-[360px] bg-gradient-to-b from-[#f3f3ef] to-[#e6e7e2]" onPointerMove={move} onPointerUp={() => (dragging.current = false)}>
+    <div ref={area} className="absolute inset-0 bg-gradient-to-b from-[#f3f3ef] to-[#e6e7e2]" onPointerMove={move} onPointerUp={() => (dragging.current = false)}>
       {children}
       {compare === 'curtain' && (
         <>
@@ -430,7 +490,7 @@ function ViewerArea({
             style={{ left: `${curtain * 100}%` }}
           >
             <div className="mx-auto h-full w-0.5 bg-white shadow" />
-            <div className="absolute left-1/2 top-1/2 size-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-accent shadow" />
+            <div className="absolute left-1/2 top-1/2 size-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary-600 shadow" />
           </div>
         </>
       )}

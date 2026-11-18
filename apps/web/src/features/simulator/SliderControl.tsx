@@ -45,7 +45,7 @@ export function SliderControl({ label, value, min, onChange, onCommit, onFocusRe
         className="h-2 w-full cursor-pointer accent-[var(--color-accent)]"
       />
       {min < 0 && (
-        <div className="flex justify-between text-[10px] uppercase tracking-wide text-faint" aria-hidden>
+        <div className="flex justify-between text-xs uppercase tracking-wide text-faint" aria-hidden>
           <span>menos</span>
           <span>mais</span>
         </div>

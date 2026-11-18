@@ -10,8 +10,9 @@ export const simulationKeys = {
 export const useSimulation = (id: string) =>
   useQuery({ queryKey: simulationKeys.detail(id), queryFn: () => api<Simulation>(`/simulations/${id}`) });
 
-export const useSimulations = (patientId?: string) =>
+export const useSimulations = (patientId?: string, enabled = true) =>
   useQuery({
+    enabled,
     queryKey: simulationKeys.list(patientId),
     queryFn: () => api<SimulationSummary[]>('/simulations', { query: { patientId } }),
   });
