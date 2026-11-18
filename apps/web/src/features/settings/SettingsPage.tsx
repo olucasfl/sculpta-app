@@ -16,6 +16,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
+import { LogoCard, SupportAccessCard } from './ClinicExtras';
 import { ChangePasswordCard, InvitationsCard } from './TeamInvitations';
 import { Button } from '../../components/ui/Button';
 import { Badge, Card, CardHeader, PageHeader } from '../../components/ui/Card';
@@ -43,7 +44,7 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader title="Configurações" />
-      <div role="tablist" aria-label="Seções" className="mb-6 flex gap-1 border-b border-line">
+      <div role="tablist" aria-label="Seções" className="mb-6 flex gap-1 overflow-x-auto border-b border-line">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -52,7 +53,7 @@ export function SettingsPage() {
             aria-selected={current === t.id}
             onClick={() => setParams({ aba: t.id })}
             className={cn(
-              '-mb-px border-b-2 px-4 py-2.5 text-sm font-medium',
+              '-mb-px min-h-11 shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium',
               current === t.id ? 'border-accent text-ink' : 'border-transparent text-muted hover:text-ink',
             )}
           >
@@ -61,7 +62,12 @@ export function SettingsPage() {
         ))}
       </div>
       <div role="tabpanel">
-        {current === 'clinica' && <ClinicSection canEdit={can(role, 'clinic.manage')} />}
+        {current === 'clinica' && (
+          <>
+            <ClinicSection canEdit={can(role, 'clinic.manage')} />
+            <LogoCard canEdit={can(role, 'clinic.manage')} />
+          </>
+        )}
         {current === 'usuarios' && (
           <>
             <UsersSection />
@@ -69,7 +75,12 @@ export function SettingsPage() {
           </>
         )}
         {current === 'conta' && <ChangePasswordCard />}
-        {current === 'auditoria' && <AuditSection />}
+        {current === 'auditoria' && (
+          <>
+            <SupportAccessCard />
+            <AuditSection />
+          </>
+        )}
       </div>
     </>
   );
@@ -170,7 +181,47 @@ function UsersSection() {
       ) : users.isError ? (
         <ErrorState error={users.error} onRetry={() => users.refetch()} />
       ) : (
-        <div className="overflow-x-auto">
+        <>
+          {/* Abaixo de 768 px cada pessoa vira um cartão */}
+          <ul className="divide-y divide-line md:hidden">
+            {users.data.map((u) => {
+              const self = u.id === me?.id;
+              return (
+                <li key={u.id} className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">
+                        {u.name} {self && <span className="text-xs font-normal text-faint">(você)</span>}
+                      </span>
+                      <span className="block truncate text-sm text-muted">{u.email}</span>
+                    </span>
+                    {u.active ? <Badge tone="ok">Ativo</Badge> : <Badge>Inativo</Badge>}
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <select
+                      aria-label={`Papel de ${u.name}`}
+                      value={u.role}
+                      disabled={self || update.isPending || !me?.role || !canManageMember(me.role, u.role)}
+                      onChange={(e) => change({ id: u.id, role: e.target.value as Role })}
+                      className="h-11 min-w-0 flex-1 rounded-md border border-field bg-surface px-2 text-sm disabled:bg-subtle"
+                    >
+                      {Role.options
+                        .filter((r) => r === u.role || (me?.role && canAssignRole(me.role, r)))
+                        .map((r) => (
+                          <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+                        ))}
+                    </select>
+                    {!self && (
+                      <Button variant="secondary" disabled={update.isPending} onClick={() => change({ id: u.id, active: !u.active })}>
+                        {u.active ? 'Desativar' : 'Reativar'}
+                      </Button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-left text-sm">
             <thead className="text-xs uppercase tracking-wide text-faint">
               <tr className="border-b border-line">
@@ -220,6 +271,7 @@ function UsersSection() {
             </tbody>
           </table>
         </div>
+        </>
       )}
       <NewUserDialog open={creating} onClose={() => setCreating(false)} />
     </Card>

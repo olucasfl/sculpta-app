@@ -10,6 +10,25 @@ export type SimulationCreate = z.infer<typeof SimulationCreate>;
 /** Miniatura JPEG ou PNG em data URL, até ~450 KB. */
 const THUMB_MAX_CHARS = 620_000;
 
+/**
+ * Escultura com o pincel: deslocamentos por vértice, esparsos e quantizados (ver apps/web simulator/sculpt.ts).
+ * `i` = índices (Uint32 LE, base64); `d` = x,y,z de cada um em múltiplos de 1e-5 (Int16 LE, base64).
+ */
+export const SculptData = z.object({
+  v: z.literal(1),
+  n: z.number().int().min(1).max(200_000),
+  i: z.string().max(900_000).regex(/^[A-Za-z0-9+/]*={0,2}$/, 'Deslocamentos inválidos'),
+  d: z.string().max(900_000).regex(/^[A-Za-z0-9+/]*={0,2}$/, 'Deslocamentos inválidos'),
+});
+export type SculptData = z.infer<typeof SculptData>;
+
+/** Confere que os dois blocos descrevem o mesmo número de vértices (4 bytes por índice, 6 por deslocamento). */
+export function sculptIsConsistent(s: SculptData): boolean {
+  const bytes = (b64: string) => Math.floor((b64.replace(/=+$/, '').length * 3) / 4);
+  const count = bytes(s.i) / 4;
+  return Number.isInteger(count) && count <= s.n && bytes(s.d) === count * 6;
+}
+
 export const SimulationVersionCreate = z.object({
   name: z.string().trim().min(1, 'Dê um nome à versão').max(80),
   description: optionalText(500),
@@ -19,7 +38,9 @@ export const SimulationVersionCreate = z.object({
     .regex(/^data:image\/(png|jpeg);base64,/, 'Miniatura inválida')
     .max(THUMB_MAX_CHARS)
     .optional(),
-});
+  /** Deslocamentos do pincel, se houve escultura. */
+  sculpt: SculptData.optional(),
+}).refine((v) => !v.sculpt || sculptIsConsistent(v.sculpt), { path: ['sculpt'], message: 'Deslocamentos inconsistentes' });
 export type SimulationVersionCreate = z.infer<typeof SimulationVersionCreate>;
 
 export interface SimulationVersion {
@@ -30,6 +51,8 @@ export interface SimulationVersion {
   createdAt: string;
   createdBy: { id: string; name: string };
   thumbnailUrl: string | null;
+  /** Deslocamentos do pincel desta versão (null = só sliders). */
+  sculpt: SculptData | null;
 }
 
 export interface Simulation {

@@ -11,6 +11,8 @@ export interface AuthContext {
   clinicId: string;
   role: ClinicRole;
   isPlatformAdmin: boolean;
+  /** Preenchido só no modo suporte: janela aberta pelo administrador da plataforma (somente leitura). */
+  support?: { id: string; expiresAt: Date };
   ip: string | null;
 }
 

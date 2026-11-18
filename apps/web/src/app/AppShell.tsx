@@ -1,14 +1,17 @@
 import { ROLE_LABEL } from '@sim/contracts';
 import { ArrowLeftRight, Box, Building2, Camera, LayoutDashboard, LogOut, Menu, Monitor, Moon, MoreHorizontal, Settings, Shield, Sun, Users } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { Logo, LogoSymbol } from '../components/Logo';
 import { WelcomeDialog } from '../features/auth/WelcomeDialog';
 import { Sheet } from '../components/ui/Sheet';
-import { logout } from '../lib/api';
+import { api, logout } from '../lib/api';
 import { useAuth } from '../lib/auth-store';
 import { cn } from '../lib/format';
+import { leaveSupport } from '../lib/query-client';
 import { THEME_LABEL, useTheme } from '../lib/theme';
+import { useClinicLogo } from '../lib/use-clinic-logo';
 
 interface NavItem {
   to: string;
@@ -42,6 +45,12 @@ export function AppShell({ platform = false }: { platform?: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
+  const clinicInfo = useQuery({
+    queryKey: ['clinic'],
+    queryFn: () => api<{ hasLogo: boolean }>('/clinic'),
+    enabled: !platform && !!user?.clinicId,
+  });
+  const logo = useClinicLogo(clinicInfo.data?.hasLogo ?? false);
   const [drawer, setDrawer] = useState(false);
   const [more, setMore] = useState(false);
 
@@ -147,7 +156,10 @@ export function AppShell({ platform = false }: { platform?: boolean }) {
         <nav aria-label="Principal" className="flex h-full flex-col">
           {brand}
           <div className="px-5 pb-2 text-xs text-muted max-xl:hidden">
-            <p className="truncate">{user?.clinicName}</p>
+            <p className="flex items-center gap-2 truncate">
+              {logo && <img src={logo} alt="" className="size-6 shrink-0 rounded object-contain" />}
+              <span className="truncate">{user?.clinicName}</span>
+            </p>
             {switchLink}
           </div>
           {navLinks('xl')}
@@ -191,6 +203,24 @@ export function AppShell({ platform = false }: { platform?: boolean }) {
         id="conteudo"
         className="mx-auto w-full max-w-[80rem] px-4 pb-28 pt-6 md:px-6 md:pb-10 lg:pt-8 xl:px-8"
       >
+        {user?.support && (
+          <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-warn-soft px-4 py-3 text-sm text-warn">
+            <span>
+              <strong>Modo suporte</strong> em {user.clinicName}: somente leitura, sem fotos nem modelos 3D. Vale até{' '}
+              {new Date(user.support.expiresAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.
+            </span>
+            <button
+              type="button"
+              className="min-h-11 font-medium underline"
+              onClick={async () => {
+                await leaveSupport();
+                navigate('/plataforma', { replace: true });
+              }}
+            >
+              Encerrar suporte
+            </button>
+          </div>
+        )}
         <Outlet />
       </main>
 

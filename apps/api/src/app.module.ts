@@ -7,6 +7,7 @@ import { BiometricsModule } from './biometrics/biometric-purge.service.js';
 import { ClinicsModule } from './clinics/clinics.module.js';
 import { InvitationsModule } from './clinics/invitations.module.js';
 import { PlatformModule } from './platform/platform.module.js';
+import { SupportModule } from './support/support.module.js';
 import { Public } from './common/auth-context.js';
 import { JwtAuthGuard, PermissionsGuard } from './common/guards.js';
 import { HttpExceptionFilter } from './common/http-exception.filter.js';
@@ -41,11 +42,12 @@ class HealthController {
     StorageModule,
     AuditModule,
     BiometricsModule,
-    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 300 }]),
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: Number(process.env.GLOBAL_RATE_LIMIT ?? 300) }]),
     AuthModule,
     ClinicsModule,
     InvitationsModule,
     PlatformModule,
+    SupportModule,
     UsersModule,
     PatientsModule,
     ConsentsModule,

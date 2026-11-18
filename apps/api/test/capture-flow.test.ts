@@ -185,14 +185,30 @@ describe('simulações', () => {
       thumbnailDataUrl: SIGNATURE,
     }).expect(201);
     expect(v.body.versions).toHaveLength(1);
-    expect(v.body.versions[0]).toMatchObject({ name: 'Proposta 1', params: { 'lips.upperVolume': 0.4 } });
+    expect(v.body.versions[0]).toMatchObject({ name: 'Proposta 1', params: { 'lips.upperVolume': 0.4 }, sculpt: null });
+
+    // Escultura com o pincel: 3 vértices alterados (índices Uint32 LE e deslocamentos Int16 LE, em base64).
+    const idx = Buffer.from(new Uint32Array([5, 9, 12]).buffer).toString('base64');
+    const dsp = Buffer.from(new Int16Array([100, -50, 20, 0, 0, 300, -400, 10, 0]).buffer).toString('base64');
+    const sculpt = { v: 1, n: 1000, i: idx, d: dsp };
+    const withSculpt = await h.http().post(`/api/simulations/${sim.body.id}/versions`).set(auth(tok.proA)).send({
+      name: 'Com pincel', params: {}, sculpt,
+    }).expect(201);
+    expect(withSculpt.body.versions.find((x: { name: string }) => x.name === 'Com pincel').sculpt).toEqual(sculpt);
+    // Deslocamentos inconsistentes (menos valores que índices) ou fora do formato são recusados.
+    const bad1 = await h.http().post(`/api/simulations/${sim.body.id}/versions`).set(auth(tok.proA)).send({
+      name: 'Ruim 1', params: {}, sculpt: { ...sculpt, d: Buffer.from(new Int16Array([1, 2, 3]).buffer).toString('base64') },
+    }).expect(400);
+    expect(bad1.body.code).toBe('VALIDATION_ERROR');
+    await h.http().post(`/api/simulations/${sim.body.id}/versions`).set(auth(tok.proA)).send({ name: 'Ruim 2', params: {}, sculpt: { ...sculpt, n: 0 } }).expect(400);
+    await h.http().post(`/api/simulations/${sim.body.id}/versions`).set(auth(tok.proA)).send({ name: 'Ruim 3', params: {}, sculpt: { ...sculpt, i: '<script>' } }).expect(400);
     await h.http().get(v.body.versions[0].thumbnailUrl).expect(200);
 
     await h.http().post(`/api/simulations/${sim.body.id}/export-log`).set(auth(tok.auxA)).send({ views: ['FRONT'] }).expect(403);
     await h.http().post(`/api/simulations/${sim.body.id}/export-log`).set(auth(tok.proA)).send({ views: ['FRONT', 'PROFILE'] }).expect(204);
 
     const list = await h.http().get(`/api/simulations?patientId=${patientId}`).set(auth(tok.auxA)).expect(200);
-    expect(list.body[0]).toMatchObject({ id: sim.body.id, versionCount: 1, patientName: 'Paciente Captura' });
+    expect(list.body[0]).toMatchObject({ id: sim.body.id, versionCount: 2, patientName: 'Paciente Captura' });
 
     // Outra clínica não enxerga.
     await h.http().get(`/api/simulations/${sim.body.id}`).set(auth(tok.adminB)).expect(404);

@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import {
   ExportLog,
+  SculptData,
   SimulationCreate,
   SimulationParams,
   SimulationVersionCreate,
@@ -110,6 +111,7 @@ export class SimulationsService {
           name: v.name,
           description: v.description,
           params: SimulationParams.catch({}).parse(v.params),
+          sculpt: SculptData.nullable().catch(null).parse(v.sculpt ?? null),
           createdAt: v.createdAt.toISOString(),
           createdBy: who(v.createdById),
           thumbnailUrl: v.thumbnailKey ? await this.storage.presign(v.thumbnailKey, { method: 'GET' }) : null,
@@ -137,6 +139,7 @@ export class SimulationsService {
           name: input.name,
           description: input.description ?? null,
           params: input.params,
+          sculpt: input.sculpt ?? undefined,
           thumbnailKey,
           createdById: me.userId,
         },

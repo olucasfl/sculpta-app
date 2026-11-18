@@ -33,6 +33,8 @@ export interface AuthUser {
   role: ClinicRole | null;
   /** Clínicas em que a pessoa acabou de entrar por convite (só em login e verificação de e-mail). */
   joined?: ClinicMembership[];
+  /** Só para o administrador da plataforma dentro de uma clínica em modo suporte (somente leitura). */
+  support?: { id: string; expiresAt: string; reason: string };
 }
 
 export interface LoginResponse {

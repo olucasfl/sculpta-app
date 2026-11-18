@@ -48,7 +48,7 @@ export class AuthController {
   @Public()
   @Post('refresh')
   @HttpCode(200)
-  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Throttle({ default: { limit: () => Number(process.env.REFRESH_RATE_LIMIT ?? 30), ttl: 60_000 } })
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     try {
       return this.send(res, await this.auth.refresh(this.cookie(req), this.clinic(req)));

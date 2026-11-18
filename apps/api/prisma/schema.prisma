@@ -37,6 +37,8 @@ enum ClinicStatus {
   ACTIVE
   SUSPENDED
   PENDING_DELETION
+  /// Expurgada: dados apagados; sobra o registro mínimo.
+  DELETED
 }
 
 enum MembershipStatus {
@@ -104,6 +106,7 @@ model Clinic {
   logoKey             String?      @map("logo_key")
   /// Preenchido ao agendar a exclusão; o expurgo roda depois da carência.
   deletionScheduledAt DateTime?    @map("deletion_scheduled_at")
+  purgedAt            DateTime?    @map("purged_at")
   createdById         String?      @map("created_by_id") @db.Uuid
   createdAt           DateTime     @default(now()) @map("created_at")
 
@@ -351,6 +354,8 @@ model SimulationVersion {
   params       Json
   thumbnailKey String?    @map("thumbnail_key")
   meshKey      String?    @map("mesh_key")
+  /// Escultura com o pincel (SculptData em packages/contracts). Nulo = só sliders.
+  sculpt       Json?
   createdById  String     @map("created_by_id") @db.Uuid
   createdAt    DateTime   @default(now()) @map("created_at")
 

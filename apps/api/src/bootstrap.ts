@@ -10,8 +10,8 @@ export function configureApp(app: INestApplication, config: AppConfig) {
   express.set('trust proxy', 1);
   express.disable('x-powered-by');
   express.use(cookieParser());
-  // Assinatura em PNG (data URL) cabe folgado em 1 MB.
-  express.useBodyParser('json', { limit: '1mb' });
+  // 2 MB: uma versão com escultura carrega os deslocamentos (esparsos) além da miniatura.
+  express.useBodyParser('json', { limit: '2mb' });
   express.use((_req: unknown, res: { setHeader(k: string, v: string): void }, next: () => void) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');

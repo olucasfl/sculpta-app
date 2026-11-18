@@ -8,7 +8,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const dataDir = join(root, '.data', 'pglite');
+const dataDir = process.env.PGLITE_DIR ?? join(root, '.data', 'pglite');
 const port = Number(process.env.PGLITE_PORT ?? 5433);
 
 mkdirSync(dataDir, { recursive: true });

@@ -121,6 +121,21 @@ export class AuthService {
     });
     const clinics = user.memberships.map((m) => ({ id: m.clinic.id, name: m.clinic.name, role: m.role }));
     const active = wantedClinicId ? clinics.find((c) => c.id === wantedClinicId) : clinics.length === 1 ? clinics[0] : undefined;
+
+    // Administrador da plataforma dentro de uma clínica em modo suporte (janela ativa, somente leitura).
+    if (!active && wantedClinicId && user.isPlatformAdmin) {
+      const win = await this.prisma.supportAccess.findFirst({
+        where: { adminId: userId, clinicId: wantedClinicId, endedAt: null, expiresAt: { gt: new Date() } },
+      });
+      const clinic = win && (await this.prisma.clinic.findUnique({ where: { id: wantedClinicId }, select: { name: true } }));
+      if (win && clinic) {
+        return {
+          id: user.id, name: user.name, email: user.email, isPlatformAdmin: true, clinics,
+          clinicId: wantedClinicId, clinicName: clinic.name, role: 'VISUALIZADOR',
+          support: { id: win.id, expiresAt: win.expiresAt.toISOString(), reason: win.reason },
+        };
+      }
+    }
     return {
       id: user.id,
       name: user.name,

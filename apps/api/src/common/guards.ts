@@ -8,8 +8,11 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { CLINIC_HEADER, can, type AccessTokenPayload, type Permission } from '@sim/contracts';
+import { CLINIC_HEADER, can, type AccessTokenPayload, type ClinicRole, type Permission } from '@sim/contracts';
 import { PrismaService } from '../prisma/prisma.service.js';
+
+/** No modo suporte, o administrador da plataforma só enxerga isto (nada de fotos ou modelos 3D). */
+export const SUPPORT_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>(['patients.read', 'members.read', 'audit.read']);
 import {
   IS_PUBLIC,
   NO_CLINIC,
@@ -75,10 +78,23 @@ export class JwtAuthGuard implements CanActivate {
 
     const wanted = req.headers[CLINIC_HEADER];
     const wantedId = Array.isArray(wanted) ? wanted[0] : wanted;
-    let chosen: (typeof memberships)[number] | undefined;
+    let chosen: { clinicId: string; role: ClinicRole; clinic: { status: string } } | undefined;
+    let support: { id: string; expiresAt: Date } | undefined;
 
     if (wantedId) {
       chosen = UUID.test(wantedId) ? memberships.find((m) => m.clinicId === wantedId.toLowerCase()) : undefined;
+      // Administrador da plataforma sem vínculo: só entra com uma janela de suporte ativa (motivo + prazo).
+      if (!chosen && user.isPlatformAdmin && UUID.test(wantedId)) {
+        const win = await this.prisma.supportAccess.findFirst({
+          where: { adminId: user.id, clinicId: wantedId.toLowerCase(), endedAt: null, expiresAt: { gt: new Date() } },
+          select: { id: true, expiresAt: true, clinicId: true },
+        });
+        const c = win && (await this.prisma.clinic.findUnique({ where: { id: win.clinicId }, select: { status: true } }));
+        if (win && c) {
+          chosen = { clinicId: win.clinicId, role: 'VISUALIZADOR', clinic: { status: c.status } };
+          support = { id: win.id, expiresAt: win.expiresAt };
+        }
+      }
       if (!chosen) throw new ForbiddenException({ code: 'CLINIC_FORBIDDEN', message: 'Sem acesso a esta clínica' });
     } else if (memberships.length === 1) {
       chosen = memberships[0];
@@ -88,8 +104,13 @@ export class JwtAuthGuard implements CanActivate {
       throw new BadRequestException({ code: 'CLINIC_REQUIRED', message: 'Escolha a clínica (cabeçalho X-Clinic-Id)' });
     }
 
-    if (chosen!.clinic.status !== 'ACTIVE') {
-      throw new ForbiddenException({ code: 'CLINIC_SUSPENDED', message: 'Esta clínica está suspensa' });
+    // No modo suporte dá para olhar clínicas suspensas ou com exclusão agendada, não as já expurgadas.
+    const open = support ? chosen!.clinic.status !== 'DELETED' : chosen!.clinic.status === 'ACTIVE';
+    if (!open) {
+      throw new ForbiddenException({ code: 'CLINIC_SUSPENDED', message: 'Esta clínica está suspensa ou foi excluída' });
+    }
+    if (support && req.method !== 'GET') {
+      throw new ForbiddenException({ code: 'SUPPORT_READ_ONLY', message: 'No modo suporte só é possível consultar' });
     }
 
     req.auth = {
@@ -97,6 +118,7 @@ export class JwtAuthGuard implements CanActivate {
       clinicId: chosen!.clinicId,
       role: chosen!.role,
       isPlatformAdmin: user.isPlatformAdmin,
+      ...(support ? { support } : {}),
       ip,
     };
     return true;
@@ -114,6 +136,13 @@ export class PermissionsGuard implements CanActivate {
     );
     if (!permission) return true;
     const { auth } = ctx.switchToHttp().getRequest<AuthedRequest>();
+    // No modo suporte valem só as permissões de leitura de SUPPORT_PERMISSIONS, não a matriz do papel.
+    if (auth?.support) {
+      if (!SUPPORT_PERMISSIONS.has(permission)) {
+        throw new ForbiddenException({ code: 'SUPPORT_RESTRICTED', message: 'No modo suporte você não acessa fotos nem modelos 3D' });
+      }
+      return true;
+    }
     if (!auth || !can(auth.role, permission)) {
       throw new ForbiddenException('Seu perfil não tem permissão para esta ação');
     }

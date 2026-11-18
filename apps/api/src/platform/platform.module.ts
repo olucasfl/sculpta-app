@@ -32,6 +32,7 @@ import { CurrentAccount, PlatformOnly, type AccountContext } from '../common/aut
 import { ZodPipe } from '../common/zod.pipe.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ClinicPurgeService } from './clinic-purge.service.js';
 
 const ListQuery = PageQuery.extend({ search: z.string().trim().max(120).optional() });
 type ListQuery = z.infer<typeof ListQuery>;
@@ -141,7 +142,7 @@ export class PlatformService {
     return this.getClinic(clinic.id);
   }
 
-  private async setStatus(admin: AccountContext, id: string, from: ('ACTIVE' | 'SUSPENDED' | 'PENDING_DELETION')[], to: 'ACTIVE' | 'SUSPENDED', action: 'CLINIC_SUSPEND' | 'CLINIC_REACTIVATE') {
+  private async setStatus(admin: AccountContext, id: string, from: ('ACTIVE' | 'SUSPENDED' | 'PENDING_DELETION' | 'DELETED')[], to: 'ACTIVE' | 'SUSPENDED', action: 'CLINIC_SUSPEND' | 'CLINIC_REACTIVATE') {
     const c = await this.prisma.clinic.findUnique({ where: { id }, select: { status: true } });
     if (!c) throw new NotFoundException('Clínica não encontrada');
     if (!from.includes(c.status)) throw new BadRequestException('Esta ação não vale para o estado atual da clínica');
@@ -168,6 +169,7 @@ export class PlatformService {
     const c = await this.prisma.clinic.findUnique({ where: { id }, select: { name: true, status: true } });
     if (!c) throw new NotFoundException('Clínica não encontrada');
     if (input.confirmName !== c.name) throw new BadRequestException({ code: 'CONFIRM_MISMATCH', message: 'Digite o nome da clínica exatamente como está' });
+    if (c.status === 'DELETED') throw new BadRequestException('Esta clínica já foi expurgada');
     if (c.status === 'PENDING_DELETION') throw new BadRequestException('A exclusão já está agendada');
     await this.prisma.$transaction(async (tx) => {
       await tx.clinic.update({
@@ -263,7 +265,17 @@ export class PlatformService {
 @Controller('platform')
 @PlatformOnly()
 export class PlatformController {
-  constructor(private readonly platform: PlatformService) {}
+  constructor(
+    private readonly platform: PlatformService,
+    private readonly purge: ClinicPurgeService,
+  ) {}
+
+  /** Expurga agora as clínicas cuja carência de exclusão já venceu (também roda sozinho, 1x por dia). */
+  @Post('clinics/purge-due')
+  @HttpCode(200)
+  async purgeDue(@CurrentAccount() me: AccountContext) {
+    return { purged: await this.purge.runDue(me.userId, me.ip) };
+  }
 
   @Get('metrics')
   metrics() {
@@ -326,5 +338,5 @@ export class PlatformController {
   }
 }
 
-@Module({ controllers: [PlatformController], providers: [PlatformService] })
+@Module({ controllers: [PlatformController], providers: [PlatformService, ClinicPurgeService] })
 export class PlatformModule {}

@@ -18,12 +18,14 @@ import { TextField } from '../../components/ui/Field';
 import { EmptyState, ErrorState, Loading } from '../../components/ui/States';
 import { toast } from '../../components/ui/Toaster';
 import { api, ApiError, errorMessage } from '../../lib/api';
+import { enterSupport } from '../../lib/query-client';
 import { formatDate, formatDateTime } from '../../lib/format';
 
 const STATUS: Record<string, { label: string; tone: 'ok' | 'warn' | 'danger' | 'neutral' }> = {
   ACTIVE: { label: 'Ativa', tone: 'ok' },
   SUSPENDED: { label: 'Suspensa', tone: 'warn' },
   PENDING_DELETION: { label: 'Exclusão agendada', tone: 'danger' },
+  DELETED: { label: 'Excluída (dados apagados)', tone: 'neutral' },
 };
 
 const ClinicStatusBadge = ({ status }: { status: string }) => (
@@ -207,8 +209,12 @@ export function PlatformClinicPage() {
   const { id = '' } = useParams();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['platform', 'clinic', id], queryFn: () => api<PlatformClinicDetail>(`/platform/clinics/${id}`) });
+  const navigate = useNavigate();
   const [deleting, setDeleting] = useState(false);
   const [confirmName, setConfirmName] = useState('');
+  const [supporting, setSupporting] = useState(false);
+  const [support, setSupport] = useState({ reason: '', minutes: '60' });
+  const [supportBusy, setSupportBusy] = useState(false);
 
   const act = useMutation({
     mutationFn: (a: { path: string; method?: 'POST' | 'DELETE'; body?: unknown }) =>
@@ -247,7 +253,11 @@ export function PlatformClinicPage() {
           </span>
         }
         action={
+          c.status === 'DELETED' ? null : (
           <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => setSupporting(true)}>
+              Entrar como suporte
+            </Button>
             {c.status === 'ACTIVE' && (
               <Button variant="secondary" loading={act.isPending} onClick={() => run({ path: '/suspend' }, 'Clínica suspensa.')}>
                 Suspender
@@ -268,6 +278,7 @@ export function PlatformClinicPage() {
               </Button>
             )}
           </div>
+          )
         }
       />
 
@@ -322,6 +333,47 @@ export function PlatformClinicPage() {
           )}
         </Card>
       </div>
+
+      <Dialog
+        open={supporting}
+        onClose={() => setSupporting(false)}
+        title="Entrar como suporte"
+        description="Somente leitura, sem fotos nem modelos 3D, por tempo limitado. O motivo fica registrado e a dona da clínica vê o acesso."
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setSupporting(false)}>Cancelar</Button>
+            <Button
+              loading={supportBusy}
+              disabled={support.reason.trim().length < 10}
+              onClick={async () => {
+                setSupportBusy(true);
+                try {
+                  await api('/platform/support-access', { method: 'POST', body: { clinicId: id, reason: support.reason.trim(), minutes: Number(support.minutes) } });
+                  await enterSupport(id);
+                  setSupporting(false);
+                  navigate('/', { replace: true });
+                } catch (e) {
+                  toast.error(errorMessage(e));
+                } finally {
+                  setSupportBusy(false);
+                }
+              }}
+            >
+              Entrar
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <TextField label="Motivo (obrigatório)" value={support.reason} hint="Ao menos 10 caracteres. Ex.: investigar erro na captura de um paciente." onChange={(e) => setSupport({ ...support, reason: e.target.value })} />
+          <label className="flex flex-col gap-1.5 text-sm font-medium">
+            Duração
+            <select value={support.minutes} onChange={(e) => setSupport({ ...support, minutes: e.target.value })} className="h-11 rounded-lg border border-field bg-surface px-3 text-base">
+              {[15, 30, 60, 120].map((m) => (<option key={m} value={m}>{m} minutos</option>))}
+            </select>
+          </label>
+        </div>
+      </Dialog>
 
       <Dialog
         open={deleting}

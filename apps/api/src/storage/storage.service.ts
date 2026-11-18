@@ -206,6 +206,7 @@ export const storageKeys = {
     `clinics/${clinicId}/captures/${captureId}/${angle}-`,
   mesh: (clinicId: string, captureId: string, reconstructionId: string) =>
     `clinics/${clinicId}/captures/${captureId}/reconstructions/${reconstructionId}.glb`,
+  logo: (clinicId: string, ext: 'png' | 'jpg') => `clinics/${clinicId}/logo-${rand()}.${ext}`,
   thumbnail: (clinicId: string, simulationId: string, versionId: string, ext: 'png' | 'jpg') =>
     `clinics/${clinicId}/simulations/${simulationId}/${versionId}.${ext}`,
 };
