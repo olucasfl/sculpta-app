@@ -11,6 +11,7 @@ import {
   canAssignRole,
   canManageMember,
   hasActiveSimulationConsent,
+  modelConfidence,
   type Permission,
 } from './index.js';
 
@@ -129,6 +130,18 @@ describe('permissões', () => {
     expect(canAssignRole('GERENTE', 'OWNER')).toBe(false);
     expect(canAssignRole('GERENTE', 'GERENTE')).toBe(true);
     expect(canAssignRole('RECEPCAO', 'VISUALIZADOR')).toBe(false);
+  });
+});
+
+describe('confiança do modelo', () => {
+  it('template é demonstrativo; reconstrução vai de alta a baixa; sem nota é baixa', () => {
+    expect(modelConfidence('TEMPLATE', null)).toBe('DEMO');
+    expect(modelConfidence('TEMPLATE', 0.1)).toBe('DEMO');
+    expect(modelConfidence('VGGTFACE', 0.9)).toBe('HIGH');
+    expect(modelConfidence('VGGTFACE', 0.8)).toBe('HIGH');
+    expect(modelConfidence('VGGTFACE', 0.7)).toBe('MEDIUM');
+    expect(modelConfidence('FALLBACK_FIT', 0.59)).toBe('LOW');
+    expect(modelConfidence('VGGTFACE', null)).toBe('LOW');
   });
 });
 

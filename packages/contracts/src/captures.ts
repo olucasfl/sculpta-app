@@ -121,6 +121,22 @@ export const RECONSTRUCTION_ERRORS = {
 } as const;
 export type ReconstructionError = keyof typeof RECONSTRUCTION_ERRORS;
 
+/**
+ * Confiança do modelo (docs/GUIA-REFORMULACAO.md, 6.6). Enquanto o rosto é o template, é DEMO (selo permanente).
+ * Reconstruído: alta (≥ 0,80), média (≥ 0,60) ou baixa. Baixa NÃO libera o simulador: o app prefere recusar
+ * a mostrar um rosto que as fotos não sustentam.
+ */
+export type ModelConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'DEMO';
+export const CONFIDENCE_THRESHOLDS = { high: 0.8, medium: 0.6 } as const;
+
+export function modelConfidence(source: ReconstructionSource, qualityScore: number | null): ModelConfidence {
+  if (source === 'TEMPLATE') return 'DEMO';
+  if (qualityScore === null) return 'LOW';
+  if (qualityScore >= CONFIDENCE_THRESHOLDS.high) return 'HIGH';
+  if (qualityScore >= CONFIDENCE_THRESHOLDS.medium) return 'MEDIUM';
+  return 'LOW';
+}
+
 export interface Reconstruction {
   id: string;
   captureId: string;

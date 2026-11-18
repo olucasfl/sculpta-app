@@ -4,6 +4,8 @@ import {
   SIMULATION_DISCLAIMER,
   SLIDERS,
   type FaceRegion,
+  modelConfidence,
+  type SculptData,
   type SimulationVersion,
   type SliderId,
 } from '@sim/contracts';
@@ -17,6 +19,8 @@ import {
   History as HistoryIcon,
   Info,
   Layers,
+  Maximize,
+  MousePointerClick,
   Move3d,
   PenTool,
   Redo2,
@@ -42,6 +46,9 @@ import { brushTargets, PIXELS_PER_UNIT } from './brush';
 import { FaceViewer, type CompareMode, type ModelInfo, type SculptHandlers, type ViewerHandle, type ViewName } from './FaceViewer';
 import { apply, commit, emptyHistory, redo, regionHasChanges, resetRegion, setLive, undo, type History } from './history';
 import { logExport, useSaveVersion, useSimulation } from './queries';
+import { BrushPanel, DEFAULT_BRUSH, type BrushSettings } from './BrushPanel';
+import type { SculptState } from './sculptRuntime';
+import { LowConfidenceScreen, NoWebglScreen } from './SimulatorStates';
 import { SliderControl } from './SliderControl';
 import { SourceBadge } from './SourceBadge';
 
@@ -92,7 +99,21 @@ export function SimulatorPage() {
   const [info, setInfo] = useState<ModelInfo | null>(null);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [sculptMode, setSculptMode] = useState(true);
+  /** brush = pincel; regions = arrastar ajusta os sliders da região; rotate = só gira. */
+  const [mode, setMode] = useState<'brush' | 'regions' | 'rotate'>('brush');
+  const [brushSettings, setBrushSettings] = useState<BrushSettings>(DEFAULT_BRUSH);
+  const [sculptState, setSculptState] = useState<SculptState>({ canUndo: false, canRedo: false, hasSculpt: false, revision: 0 });
+  const [savedRevision, setSavedRevision] = useState(0);
+  const [sculptData, setSculptData] = useState<SculptData | null>(null);
+  const [sculptNonce, setSculptNonce] = useState(0);
+  const webgl = useMemo(() => {
+    try {
+      const c = document.createElement('canvas');
+      return !!(c.getContext('webgl2') ?? c.getContext('webgl'));
+    } catch {
+      return false;
+    }
+  }, []);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [hud, setHud] = useState<{ x: number; y: number; ids: SliderId[] } | null>(null);
   const loadedVersion = useRef(false);
@@ -105,10 +126,13 @@ export function SimulatorPage() {
     if (latest) {
       setHistory(emptyHistory(latest.params));
       setSavedParams(JSON.stringify(latest.params));
+      setSculptData(latest.sculpt ?? null);
+      setSculptNonce((n) => n + 1);
+      setSavedRevision(0);
     }
   }, [sim.data]);
 
-  const dirty = JSON.stringify(history.committed) !== savedParams;
+  const dirty = JSON.stringify(history.committed) !== savedParams || sculptState.revision !== savedRevision;
   const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname);
   useEffect(() => {
     if (!dirty) return;
@@ -158,6 +182,13 @@ export function SimulatorPage() {
   if (rec.isError) return <ErrorState error={rec.error} onRetry={() => rec.refetch()} />;
   const s = sim.data;
   const r = rec.data!;
+  const confidence = modelConfidence(r.source, r.qualityScore);
+  if (confidence === 'LOW') return <LowConfidenceScreen patientId={s.patientId} score={r.qualityScore} />;
+  if (!webgl) return <NoWebglScreen patientId={s.patientId} />;
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void document.documentElement.requestFullscreen?.();
+  };
   const preset = PROCEDURE_PRESETS.find((p) => p.id === presetId)!;
   const sliders = SLIDERS.filter((x) => (preset.sliders as readonly string[]).includes(x.id));
   const regionsInPreset = [...new Set(sliders.map((x) => x.region))];
@@ -188,7 +219,11 @@ export function SimulatorPage() {
           viewNonce={viewNonce}
           onRegionPick={onRegionPick}
           onLoaded={onLoaded}
-          sculpt={sculptMode && canWrite ? sculptHandlers : undefined}
+          sculpt={mode === 'regions' && canWrite ? sculptHandlers : undefined}
+          brush={mode === 'brush' && canWrite ? brushSettings : undefined}
+          sculptData={sculptData}
+          sculptNonce={sculptNonce}
+          onSculptChange={setSculptState}
         />
         {!info && (
           <div className="absolute inset-0 flex items-center justify-center">
@@ -206,6 +241,7 @@ export function SimulatorPage() {
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-sm font-semibold tracking-tight">{s.name}</h1>
             <SourceBadge source={r.source} qualityScore={r.qualityScore} />
+            {confidence === 'MEDIUM' && <Badge tone="warn">Confiança média</Badge>}
             {dirty && <Badge>Não salvo</Badge>}
           </div>
         </div>
@@ -216,7 +252,10 @@ export function SimulatorPage() {
           <Button variant="secondary" size="sm" aria-label="Refazer" title="Refazer" disabled={!history.future.length} onClick={() => setHistory(redo)}>
             <Redo2 className="size-4" aria-hidden />
           </Button>
-          <Button variant="secondary" size="sm" icon={<RotateCcw className="size-4" aria-hidden />} disabled={!Object.keys(history.live).length} onClick={() => setHistory((h) => apply(h, {}))}>
+          <Button variant="secondary" size="sm" icon={<RotateCcw className="size-4" aria-hidden />} disabled={!Object.keys(history.live).length && !sculptState.hasSculpt} onClick={() => {
+            setHistory((h) => apply(h, {}));
+            viewer.current?.clearSculpt();
+          }}>
             Restaurar tudo
           </Button>
           <Button variant="secondary" size="sm" icon={<HistoryIcon className="size-4" aria-hidden />} onClick={() => setVersionsOpen((v) => !v)} aria-pressed={versionsOpen}>
@@ -263,6 +302,16 @@ export function SimulatorPage() {
 
       {/* Controles da região: flutuam sobre a imagem, o resultado aparece na hora */}
       <div className={cn(GLASS, 'absolute right-3 top-24 z-20 max-h-[calc(100%-10.5rem)] w-72 overflow-y-auto p-4 max-md:inset-x-3 max-md:bottom-24 max-md:top-auto max-md:max-h-[38%] max-md:w-auto')}>
+        {mode === 'brush' && canWrite && (
+          <BrushPanel
+            brush={brushSettings}
+            onChange={setBrushSettings}
+            state={sculptState}
+            onUndo={() => viewer.current?.undoSculpt()}
+            onRedo={() => viewer.current?.redoSculpt()}
+            onClear={() => viewer.current?.clearSculpt()}
+          />
+        )}
         <div className="mb-1 flex items-center justify-between">
           <h2 className="font-semibold">{preset.label}</h2>
           {regionsInPreset.some((rg) => regionHasChanges(history.live, rg)) && (
@@ -299,6 +348,9 @@ export function SimulatorPage() {
             versions={s.versions}
             onLoad={(v) => {
               setHistory((h) => apply(h, v.params));
+              setSculptData(v.sculpt ?? null);
+              setSculptNonce((n) => n + 1);
+              setSavedRevision(-1);
               toast.ok(`Versão “${v.name}” carregada.`);
             }}
           />
@@ -326,10 +378,13 @@ export function SimulatorPage() {
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-1.5 p-3">
         <div className={cn(GLASS, 'pointer-events-auto flex flex-wrap items-center justify-center gap-2 px-2 py-1.5')}>
           <div role="group" aria-label="Modo" className="flex gap-1 rounded-lg bg-subtle p-0.5">
-            <button type="button" aria-pressed={sculptMode} disabled={!canWrite} onClick={() => setSculptMode(true)} className={cn('inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium disabled:opacity-40', sculptMode ? 'bg-primary-600 text-white shadow-card' : 'text-muted hover:text-ink')}>
-              <PenTool className="size-4" aria-hidden /> Modelar
+            <button type="button" aria-pressed={mode === 'brush'} disabled={!canWrite} onClick={() => setMode('brush')} title="Pincel: modele a superfície com o mouse, a caneta ou o dedo" className={cn('inline-flex min-h-9 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium disabled:opacity-40', mode === 'brush' ? 'bg-primary-600 text-white shadow-card' : 'text-muted hover:text-ink')}>
+              <PenTool className="size-4" aria-hidden /> Pincel
             </button>
-            <button type="button" aria-pressed={!sculptMode} onClick={() => setSculptMode(false)} className={cn('inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium', !sculptMode ? 'bg-surface text-ink shadow-card' : 'text-muted hover:text-ink')}>
+            <button type="button" aria-pressed={mode === 'regions'} disabled={!canWrite} onClick={() => setMode('regions')} title="Regiões: arrastar sobre uma região move os controles dela" className={cn('inline-flex min-h-9 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium disabled:opacity-40', mode === 'regions' ? 'bg-primary-600 text-white shadow-card' : 'text-muted hover:text-ink')}>
+              <MousePointerClick className="size-4" aria-hidden /> Regiões
+            </button>
+            <button type="button" aria-pressed={mode === 'rotate'} onClick={() => setMode('rotate')} className={cn('inline-flex min-h-9 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium', mode === 'rotate' ? 'bg-surface text-ink shadow-card' : 'text-muted hover:text-ink')}>
               <Move3d className="size-4" aria-hidden /> Girar
             </button>
           </div>
@@ -373,6 +428,12 @@ export function SimulatorPage() {
             <Crosshair className="size-4" aria-hidden />
             <span className="sr-only">Recentralizar câmera</span>
           </button>
+          {document.fullscreenEnabled && (
+            <button type="button" onClick={toggleFullscreen} title="Tela cheia" className="rounded-md p-1.5 text-muted hover:bg-subtle">
+              <Maximize className="size-4" aria-hidden />
+              <span className="sr-only">Tela cheia</span>
+            </button>
+          )}
         </div>
         <p className="pointer-events-none flex max-w-3xl items-start gap-1.5 px-2 text-center text-xs text-muted">
           <Info className="mt-0.5 size-3 shrink-0" aria-hidden />
@@ -396,8 +457,10 @@ export function SimulatorPage() {
               description,
               params: history.committed,
               thumbnailDataUrl: viewer.current ? thumbnail(viewer.current) : undefined,
+              sculpt: viewer.current?.getSculpt() ?? undefined,
             });
             setSavedParams(JSON.stringify(history.committed));
+            setSavedRevision(sculptState.revision);
             setSaving(false);
             toast.ok('Versão salva.');
           } catch (e) {

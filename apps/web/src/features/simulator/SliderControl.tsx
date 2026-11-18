@@ -25,9 +25,28 @@ export function SliderControl({ label, value, min, onChange, onCommit, onFocusRe
         <label htmlFor={id} className="text-sm font-medium">
           {label}
         </label>
-        <output htmlFor={id} className="text-xs tabular-nums text-muted">
-          {text}
-        </output>
+        <span className="flex items-center gap-1">
+          <input
+            type="number"
+            inputMode="numeric"
+            min={Math.round(min * 100)}
+            max={100}
+            step={1}
+            value={Math.round(value * 100)}
+            aria-label={`${label} em porcentagem`}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (Number.isFinite(n)) onChange(Math.min(1, Math.max(min, n / 100)));
+            }}
+            onBlur={onCommit}
+            onKeyDown={(e) => e.key === 'Enter' && onCommit()}
+            className="h-8 w-14 rounded-md border border-field bg-surface px-1.5 text-right text-xs tabular-nums"
+          />
+          <output htmlFor={id} className="sr-only">
+            {text}
+          </output>
+          <span aria-hidden className="text-xs text-muted">%</span>
+        </span>
       </div>
       <input
         id={id}

@@ -1,8 +1,10 @@
 import { Environment, Lightformer, OrbitControls, useGLTF } from '@react-three/drei';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
-import type { FaceRegion, SimulationParams } from '@sim/contracts';
+import type { FaceRegion, SculptData, SimulationParams } from '@sim/contracts';
 import { forwardRef, Suspense, type ComponentRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import type { BrushParams } from './sculpt';
+import { createSculptRuntime, type SculptRuntime, type SculptState } from './sculptRuntime';
 
 export type CompareMode = 'off' | 'curtain' | 'side' | 'hold';
 export type ViewName = 'FRONT' | 'LEFT_45' | 'RIGHT_45' | 'LEFT_90' | 'RIGHT_90';
@@ -42,6 +44,11 @@ export interface ModelInfo {
 export interface ViewerHandle {
   /** Renderiza uma vista (antes ou depois) num PNG, sem mexer na tela. */
   snapshot(opts: { view: ViewName; original: boolean; width: number; height: number }): string;
+  /** Deslocamentos do pincel para salvar na versão (`null` se não há escultura). */
+  getSculpt(): SculptData | null;
+  undoSculpt(): void;
+  redoSculpt(): void;
+  clearSculpt(): void;
 }
 
 interface Props {
@@ -59,6 +66,12 @@ interface Props {
   onLoaded?: (info: ModelInfo) => void;
   /** Modo modelar: arrastar sobre o rosto (mouse, caneta, dedo) chama estes callbacks em vez de girar a câmera. */
   sculpt?: SculptHandlers;
+  /** Pincel: arrastar sobre o rosto empurra, puxa, suaviza ou apaga a superfície (tem prioridade sobre `sculpt`). */
+  brush?: Omit<BrushParams, 'pressure'>;
+  /** Escultura de uma versão salva; recarrega quando `sculptNonce` muda. */
+  sculptData?: SculptData | null;
+  sculptNonce?: number;
+  onSculptChange?: (state: SculptState) => void;
 }
 
 export interface SculptHandlers {
@@ -72,12 +85,19 @@ interface Shared {
   mesh: THREE.Mesh | null;
   current: number[];
   zeros: number[];
+  sculpt: SculptRuntime | null;
 }
 
 export const FaceViewer = forwardRef<ViewerHandle, Props>(function FaceViewer(props, ref) {
-  const shared = useRef<Shared>({ mesh: null, current: [], zeros: [] });
-  const api = useRef<ViewerHandle | null>(null);
-  useImperativeHandle(ref, () => ({ snapshot: (o) => api.current?.snapshot(o) ?? '' }));
+  const shared = useRef<Shared>({ mesh: null, current: [], zeros: [], sculpt: null });
+  const api = useRef<Pick<ViewerHandle, 'snapshot'> | null>(null);
+  useImperativeHandle(ref, () => ({
+    snapshot: (o) => api.current?.snapshot(o) ?? '',
+    getSculpt: () => shared.current.sculpt?.encode() ?? null,
+    undoSculpt: () => shared.current.sculpt?.undo(),
+    redoSculpt: () => shared.current.sculpt?.redo(),
+    clearSculpt: () => shared.current.sculpt?.clear(),
+  }));
 
   return (
     <Canvas
@@ -115,6 +135,10 @@ function FaceModel({
   onRegionPick,
   onLoaded,
   sculpt,
+  brush,
+  sculptData,
+  sculptNonce,
+  onSculptChange,
   shared,
 }: Props & { shared: React.RefObject<Shared> }) {
   const gltf = useGLTF(url);
@@ -122,8 +146,15 @@ function FaceModel({
   const gl = useThree((s) => s.gl);
   const [hover, setHover] = useState<FaceRegion | null>(null);
   const dragging = useRef(false);
+  const changeRef = useRef(onSculptChange);
+  changeRef.current = onSculptChange;
+  const brushRef = useRef(brush);
+  brushRef.current = brush;
+  const brushOn = !!brush;
+  const ring = useRef<THREE.Mesh>(null);
+  const lastStamp = useRef<THREE.Vector3 | null>(null);
 
-  const { mesh, eyes, regionAttrs } = useMemo(() => {
+  const { mesh, eyes, regionAttrs, runtime } = useMemo(() => {
     let source: THREE.Mesh | null = null;
     gltf.scene.traverse((o) => {
       if (!source && (o as THREE.Mesh).isMesh) source = o as THREE.Mesh;
@@ -141,6 +172,8 @@ function FaceModel({
       sheenRoughness: 0.8,
       sheenColor: new THREE.Color('#f0d2c0'),
     });
+    const runtime = createSculptRuntime(geometry, (st) => changeRef.current?.(st), invalidate);
+    runtime?.patchMaterial(material);
     const m = new THREE.Mesh(geometry, material);
     m.morphTargetDictionary = { ...(src.morphTargetDictionary ?? {}) };
     m.morphTargetInfluences = new Array(Object.keys(m.morphTargetDictionary).length).fill(0);
@@ -157,7 +190,7 @@ function FaceModel({
       vertices: n,
       sliders: Object.keys(m.morphTargetDictionary),
     });
-    return { mesh: m, eyes: extras.eyes ?? null, regionAttrs: attrs };
+    return { mesh: m, eyes: extras.eyes ?? null, regionAttrs: attrs, runtime };
     // onLoaded é estável o bastante; recriar a malha a cada render seria caro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gltf]);
@@ -166,6 +199,23 @@ function FaceModel({
     mesh.geometry.dispose();
     (mesh.material as THREE.Material).dispose();
   }, [mesh]);
+
+  // Liga a escultura (pincel) ao visualizador e carrega a de uma versão salva.
+  useEffect(() => {
+    const holder = shared.current;
+    holder.sculpt = runtime;
+    return () => {
+      if (holder.sculpt === runtime) holder.sculpt = null;
+    };
+  }, [runtime, shared]);
+  useEffect(() => {
+    try {
+      runtime?.load(sculptData ?? null);
+    } catch (e) {
+      console.warn('Escultura salva ignorada:', e);
+      runtime?.load(null);
+    }
+  }, [runtime, sculptData, sculptNonce]);
 
   // Pesos dos sliders → influências dos morph targets.
   useEffect(() => {
@@ -207,6 +257,12 @@ function FaceModel({
   useEffect(() => {
     if (!sculpt) setHover(null);
   }, [sculpt]);
+  useEffect(() => {
+    if (!brushOn && ring.current) {
+      ring.current.visible = false;
+      invalidate();
+    }
+  }, [brushOn, invalidate]);
 
   // Modelar: sobre o rosto o arrasto modela; fora dele a câmera gira. Antes de a câmera
   // (OrbitControls) ver o clique, decidimos se ele caiu no rosto e a desligamos só nesse caso.
@@ -215,7 +271,7 @@ function FaceModel({
   useEffect(() => {
     const el = gl.domElement;
     if (controls) controls.enabled = true;
-    if (!sculpt) {
+    if (!sculpt && !brushOn) {
       el.style.cursor = 'grab';
       return;
     }
@@ -227,7 +283,7 @@ function FaceModel({
       ray.setFromCamera(ndc, camera);
       const hit = ray.intersectObject(mesh, false)[0];
       // Só conta como "rosto" onde existe região modelável; testa/orelha continuam girando.
-      return !!hit?.face && regionAt(hit.face) !== null;
+      return !!hit?.face && (brushOn || regionAt(hit.face) !== null);
     };
     const down = (ev: PointerEvent) => {
       if (controls) controls.enabled = !overFace(ev);
@@ -252,7 +308,7 @@ function FaceModel({
     };
     // regionAt só lê regionAttrs, que muda junto com mesh
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sculpt, gl, camera, controls, mesh]);
+  }, [sculpt, brushOn, gl, camera, controls, mesh]);
 
   useEffect(() => {
     (mesh.material as THREE.MeshPhysicalMaterial).wireframe = wireframe;
@@ -270,7 +326,7 @@ function FaceModel({
   }
 
   function pick(e: ThreeEvent<MouseEvent>) {
-    if (sculpt || e.delta > 4 || !e.face) return;
+    if (sculpt || brushOn || e.delta > 4 || !e.face) return;
     e.stopPropagation();
     const best = regionAt(e.face);
     if (best) onRegionPick(best);
@@ -329,6 +385,73 @@ function FaceModel({
     el.addEventListener('pointercancel', up);
   }
 
+  /** Anel que mostra o tamanho do pincel sobre a superfície. */
+  function placeRing(point: THREE.Vector3, normal?: THREE.Vector3) {
+    const r = ring.current;
+    const b = brushRef.current;
+    if (!r || !b) return;
+    const n = normal ?? new THREE.Vector3(0, 0, 1);
+    r.visible = true;
+    r.position.copy(point).addScaledVector(n, 0.0008);
+    r.scale.setScalar(b.radius);
+    r.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+    invalidate();
+  }
+
+  function brushDown(e: ThreeEvent<PointerEvent>) {
+    const b = brushRef.current;
+    if (!b || !runtime || !e.face || e.nativeEvent.button > 0) return;
+    e.stopPropagation();
+    const el = gl.domElement;
+    const id = e.nativeEvent.pointerId;
+    el.setPointerCapture(id);
+    dragging.current = true;
+    // Caneta: a pressão vale; mouse e dedo usam força fixa.
+    const pressureOf = (ev: PointerEvent) => (ev.pointerType === 'pen' ? Math.min(1.6, Math.max(0.1, (ev.pressure || 0.5) * 1.6)) : 1);
+    const stamp = (p: THREE.Vector3, ev: PointerEvent) => {
+      const cur = brushRef.current;
+      if (cur) runtime.stamp(p, { ...cur, pressure: pressureOf(ev) });
+    };
+    const first = e.point.clone();
+    stamp(first, e.nativeEvent);
+    lastStamp.current = first;
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== id) return;
+      const rect = el.getBoundingClientRect();
+      ndc.set(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
+      ray.setFromCamera(ndc, camera);
+      const hit = ray.intersectObject(mesh, false)[0];
+      const cur = brushRef.current;
+      if (!hit || !cur) return;
+      placeRing(hit.point, hit.face?.normal);
+      // Um toque a cada fração do raio, para a força não depender de quantos eventos o aparelho manda.
+      if (lastStamp.current && hit.point.distanceTo(lastStamp.current) < cur.radius * 0.22) return;
+      stamp(hit.point, ev);
+      lastStamp.current = hit.point.clone();
+    };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== id) return;
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      if (el.hasPointerCapture(id)) el.releasePointerCapture(id);
+      dragging.current = false;
+      lastStamp.current = null;
+      runtime.endStroke();
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  }
+
+  function brushHover(e: ThreeEvent<PointerEvent>) {
+    if (!brushRef.current || dragging.current || !e.face) return;
+    e.stopPropagation();
+    placeRing(e.point, e.face.normal);
+  }
+
   function sculptHover(e: ThreeEvent<PointerEvent>) {
     if (!sculpt || dragging.current || !e.face) return;
     e.stopPropagation();
@@ -341,10 +464,21 @@ function FaceModel({
       <primitive
         object={mesh}
         onClick={pick}
-        onPointerDown={sculptDown}
-        onPointerMove={sculptHover}
-        onPointerOut={() => !dragging.current && setHover(null)}
+        onPointerDown={brushOn ? brushDown : sculptDown}
+        onPointerMove={brushOn ? brushHover : sculptHover}
+        onPointerOut={() => {
+          if (dragging.current) return;
+          setHover(null);
+          if (ring.current) {
+            ring.current.visible = false;
+            invalidate();
+          }
+        }}
       />
+      <mesh ref={ring} name="brush-ring" visible={false} renderOrder={10}>
+        <ringGeometry args={[0.9, 1, 56]} />
+        <meshBasicMaterial color="#0f8f89" transparent opacity={0.95} depthTest={false} side={THREE.DoubleSide} />
+      </mesh>
       {eyes?.centers.map((p, i) => (
         <mesh key={i} position={p}>
           <sphereGeometry args={[eyes.radius, 32, 24]} />
@@ -364,7 +498,7 @@ function Rig({
   viewNonce,
   shared,
   api,
-}: Props & { shared: React.RefObject<Shared>; api: React.RefObject<ViewerHandle | null> }) {
+}: Props & { shared: React.RefObject<Shared>; api: React.RefObject<Pick<ViewerHandle, 'snapshot'> | null> }) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
   const { gl, scene, camera, invalidate } = useThree();
   const goal = useRef<{ az: number; dist: number } | null>(null);
@@ -377,7 +511,8 @@ function Rig({
   useEffect(() => invalidate(), [compare, curtain, showOriginal, invalidate]);
 
   const setInfluences = (original: boolean) => {
-    const { mesh, current, zeros } = shared.current;
+    const { mesh, current, zeros, sculpt } = shared.current;
+    sculpt?.setMix(original ? 0 : 1);
     if (!mesh?.morphTargetInfluences) return;
     const src = original ? zeros : current;
     for (let i = 0; i < src.length; i++) mesh.morphTargetInfluences[i] = src[i]!;
@@ -403,6 +538,9 @@ function Rig({
           material.color.copy(SKIN);
           material.needsUpdate = true;
         }
+        const ringObj = scene.getObjectByName('brush-ring');
+        const ringWas = ringObj?.visible ?? false;
+        if (ringObj) ringObj.visible = false;
         gl.setPixelRatio(1);
         gl.setSize(width, height, false);
         gl.setScissorTest(false);
@@ -410,6 +548,7 @@ function Rig({
         gl.render(scene, cam);
         const url = gl.domElement.toDataURL('image/png');
         setInfluences(false);
+        if (ringObj) ringObj.visible = ringWas;
         if (material && prev) {
           material.vertexColors = prev.vertexColors;
           material.wireframe = prev.wireframe;

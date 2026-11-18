@@ -61,6 +61,27 @@ async function main() {
     for (const p of PATIENTS) await prisma.patient.create({ data: { ...p, clinicId: clinic.id } });
     patients = PATIENTS.length;
   }
+  // Simulação de demonstração: modelo template já pronto, para abrir o simulador direto.
+  const owner = await prisma.user.findUniqueOrThrow({ where: { email: USERS[0].email } });
+  if ((await prisma.simulation.count({ where: { clinicId: clinic.id } })) === 0) {
+    const patient = await prisma.patient.findFirstOrThrow({ where: { clinicId: clinic.id, deletedAt: null }, orderBy: { createdAt: 'asc' } });
+    const capture = await prisma.captureSession.create({
+      data: { clinicId: clinic.id, patientId: patient.id, capturedById: owner.id, status: 'COMPLETED' },
+    });
+    const reconstruction = await prisma.reconstruction.create({
+      data: {
+        clinicId: clinic.id,
+        patientId: patient.id,
+        captureId: capture.id,
+        source: 'TEMPLATE',
+        status: 'DONE',
+        finishedAt: new Date(),
+      },
+    });
+    await prisma.simulation.create({
+      data: { clinicId: clinic.id, patientId: patient.id, reconstructionId: reconstruction.id, createdById: owner.id, name: 'Simulação de demonstração' },
+    });
+  }
   console.log(`[seed] Clínica ${existing ? 'já existia' : 'criada'}; ${USERS.length} membros, 1 admin da plataforma e ${patients} pacientes fictícios garantidos.`);
   console.log('[seed] Logins: ' + [...USERS, PLATFORM_ADMIN].map((u) => u.email).join(', ') + ' (senha: SEED_PASSWORD do .env)');
 }

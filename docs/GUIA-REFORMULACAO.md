@@ -241,6 +241,8 @@ E0 Fundação ─► E1 Design + telas de gestão ─► E1B Contas, clínicas e
 
 ### Etapa 2 — Simulador imersivo, pincel e qualidade honesta  (G)
 
+> **Estado (18/11/2026): entregue na versão atual**, com as exceções listadas em "Fora desta entrega" abaixo.
+
 **Objetivo:** "mexer direto no rosto, com caneta, e ver na hora".
 
 **Entregas**
@@ -260,6 +262,22 @@ E0 Fundação ─► E1 Design + telas de gestão ─► E1B Contas, clínicas e
 - Em 375×812, o simulador é operável com uma mão (painel inferior arrastável, sem controle fora do alcance).
 
 **Testes:** unidade (brush, histórico, serialização dos deslocamentos), componente, e2e com eventos de ponteiro simulados (incluindo `pointerType: 'pen'` e `pressure`).
+
+**Entregue**
+- **Pincel de escultura** (`simulator/sculpt.ts`, motor puro com 9 testes): empurrar, puxar, suavizar e apagar, com raio, força, queda suave, **simetria em X** e **pressão da caneta** (mouse e dedo usam força fixa). Teto de deslocamento por vértice para não gerar aberração. Desfazer e refazer **por traço**, e "limpar escultura" também se desfaz.
+- **Como aparece na tela** (`sculptRuntime.ts`): os deslocamentos viram atributos por vértice somados no *vertex shader*. Não usei morph targets de propósito: o three.js guarda os morph targets numa textura que não se atualiza quando os dados mudam. O "antes" (cortina, lado a lado, alternar) mostra o rosto **sem** a escultura. O anel do pincel mostra o tamanho sobre a superfície e some na exportação.
+- **Salvar e carregar:** a versão guarda os deslocamentos (esparsos e quantizados em 0,01 mm) junto dos sliders: migração 0006, contrato `SculptData` com validação de consistência, API e tela. Salvar → recarregar traz a escultura de volta (testado no navegador).
+- **Modos:** Pincel (padrão), Regiões (arrastar move os sliders da região) e Girar. Sobre o rosto o toque modela; fora dele a câmera gira.
+- **Confiança do modelo** (`modelConfidence`): template = demonstrativo; reconstrução alta (≥ 0,80), média (≥ 0,60, com selo) ou **baixa, que não libera o simulador** (tela explicando e levando de volta à captura).
+- **Sem WebGL:** tela explicativa em vez de página em branco.
+- **Sliders** com campo numérico editável; botão de **tela cheia** onde o navegador permite.
+
+**Fora desta entrega (honesto)**
+- **Medições** (régua entre pontos marcados) não foram feitas.
+- **Gestos de toque do simulador** são os do OrbitControls (um dedo gira, dois aproximam); dois dedos no modo Pincel não foram refinados.
+- **Caneta e toque reais não foram testados**: o teste de tela usa o mouse. A pressão está implementada por `PointerEvent.pressure` e coberta por teste unitário do motor, mas a sensação precisa do seu tablet.
+- **Desempenho:** o motor varre todos os vértices a cada toque (a malha do template tem ~37 mil). Não medi em tablet. Se pesar, o passo seguinte é uma grade espacial.
+- A **escultura de uma malha reconstruída** (etapa 6) depende de a contagem de vértices bater com a gravada; versões salvas em outra malha são recusadas na hora de carregar.
 **Risco:** com 5 mil vértices a escultura fica facetada → subdividir uma vez (spec 6.3). Pressão da caneta **não pode ser validada sem hardware**; testo com eventos simulados e peço seu teste no tablet.
 
 ---
