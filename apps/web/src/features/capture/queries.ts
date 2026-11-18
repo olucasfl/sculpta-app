@@ -18,8 +18,9 @@ export const captureKeys = {
 export const useCaptureSession = (id: string) =>
   useQuery({ queryKey: captureKeys.session(id), queryFn: () => api<CaptureSession>(`/captures/${id}`) });
 
-export const usePatientCaptures = (patientId: string) =>
+export const usePatientCaptures = (patientId: string, enabled = true) =>
   useQuery({
+    enabled,
     queryKey: captureKeys.forPatient(patientId),
     queryFn: () => api<CaptureSummary[]>(`/patients/${patientId}/captures`),
   });

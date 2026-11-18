@@ -18,10 +18,24 @@ const REC_STATUS = { QUEUED: 'Na fila', PROCESSING: 'Processando', DONE: 'Modelo
 export function PatientHistory({ patient }: { patient: Patient }) {
   const role = useAuth((s) => s.user?.role ?? 'RECEPCAO');
   const navigate = useNavigate();
-  const captures = usePatientCaptures(patient.id);
-  const sims = useSimulations(patient.id);
+  const canSee = can(role, 'captures.read');
+  const captures = usePatientCaptures(patient.id, canSee);
+  const sims = useSimulations(patient.id, canSee);
   const start = useStartCapture();
-  const canCapture = can(role, 'patients.write') && patient.consentState === 'ACTIVE';
+  const canCapture = can(role, 'captures.write') && patient.consentState === 'ACTIVE';
+
+  if (!canSee) {
+    return (
+      <Card>
+        <CardHeader title="Capturas e simulações" />
+        <EmptyState
+          icon={<History className="size-5" />}
+          title="Fotos e modelos 3D ficam fora do seu perfil"
+          description="Seu perfil cuida do cadastro e do termo de consentimento. A equipe clínica vê as capturas e as simulações."
+        />
+      </Card>
+    );
+  }
 
   return (
     <Card>

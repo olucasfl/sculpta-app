@@ -2,7 +2,7 @@ import { useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttribu
 import { cn } from '../../lib/format';
 
 const control =
-  'w-full rounded-lg border bg-surface px-3 text-[15px] text-ink placeholder:text-faint transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:bg-subtle';
+  'w-full rounded-lg border bg-surface px-3 text-base text-ink placeholder:text-faint transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:bg-subtle';
 
 interface FieldProps {
   label: string;
@@ -26,7 +26,7 @@ export function Field({ label, error, hint, optional, children }: FieldProps) {
         id,
         'aria-invalid': error ? true : undefined,
         'aria-describedby': describedBy,
-        className: cn(control, error ? 'border-danger' : 'border-line-strong'),
+        className: cn(control, error ? 'border-danger' : 'border-field'),
       })}
       {hint && !error && (
         <p id={`${id}-hint`} className="text-xs text-muted">

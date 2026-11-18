@@ -67,7 +67,7 @@ export function DashboardPage() {
 
 function Stat({ label, value, icon, to }: { label: string; value?: number; icon: ReactNode; to: string }) {
   return (
-    <Link to={to} className="rounded-xl border border-line bg-surface p-5 shadow-card transition-colors hover:border-line-strong">
+    <Link to={to} className="rounded-xl border border-line bg-surface p-5 shadow-card transition-colors hover:border-field">
       <div className="flex items-center gap-2 text-sm font-medium text-muted">
         {icon}
         {label}

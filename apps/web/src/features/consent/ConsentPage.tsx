@@ -92,7 +92,7 @@ export function ConsentPage() {
             {CURRENT_TERM.sections.map((s) => (
               <section key={s.heading}>
                 <h2 className="font-semibold">{s.heading}</h2>
-                <p className="mt-1 text-[15px] leading-relaxed text-muted">{s.body}</p>
+                <p className="mt-1 text-base leading-relaxed text-muted">{s.body}</p>
               </section>
             ))}
           </div>

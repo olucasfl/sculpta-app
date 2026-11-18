@@ -63,7 +63,7 @@ export function PatientsPage() {
 
       <Card>
         <div className="flex flex-wrap items-center gap-3 border-b border-line p-4">
-          <div className="relative min-w-[16rem] flex-1">
+          <div className="relative min-w-0 flex-1 basis-64">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" aria-hidden />
             <input
               type="search"
@@ -71,7 +71,7 @@ export function PatientsPage() {
               onChange={(e) => setTerm(e.target.value)}
               placeholder="Buscar por nome ou código interno"
               aria-label="Buscar pacientes"
-              className="h-10 w-full rounded-lg border border-line-strong bg-surface pl-9 pr-3 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+              className="h-11 w-full rounded-lg border border-field bg-surface pl-9 pr-3 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
             />
           </div>
           <div role="group" aria-label="Filtrar por termo" className="flex gap-1 rounded-lg bg-subtle p-1">
@@ -86,7 +86,7 @@ export function PatientsPage() {
                 aria-pressed={consent === value}
                 onClick={() => setFilter(value)}
                 className={cn(
-                  'rounded-md px-3 py-1.5 text-sm font-medium',
+                  'min-h-10 rounded-md px-3 text-sm font-medium',
                   consent === value ? 'bg-surface text-ink shadow-card' : 'text-muted hover:text-ink',
                 )}
               >
@@ -113,7 +113,23 @@ export function PatientsPage() {
           )
         ) : (
           <>
-            <div className="overflow-x-auto">
+            {/* Abaixo de 768 px cada linha vira um cartão */}
+            <ul className="divide-y divide-line md:hidden">
+              {q.data.items.map((p) => (
+                <li key={p.id}>
+                  <Link to={`/patients/${p.id}`} className="flex min-h-16 items-center justify-between gap-3 px-4 py-3 hover:bg-subtle/60">
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-ink">{p.name}</span>
+                      <span className="block truncate text-sm text-muted">
+                        {p.internalCode ? <span className="font-mono">{p.internalCode}</span> : 'Sem código'} · {formatDate(p.updatedAt)}
+                      </span>
+                    </span>
+                    <ConsentBadge state={p.consentState} />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-left text-sm">
                 <thead className="text-xs uppercase tracking-wide text-faint">
                   <tr className="border-b border-line">
@@ -127,11 +143,11 @@ export function PatientsPage() {
                   {q.data.items.map((p) => (
                     <tr key={p.id} className="border-b border-line last:border-0 hover:bg-subtle/60">
                       <td className="px-5 py-3">
-                        <Link to={`/patients/${p.id}`} className="font-medium text-ink hover:text-accent">
+                        <Link to={`/patients/${p.id}`} className="inline-flex min-h-11 items-center font-medium text-ink hover:text-accent">
                           {p.name}
                         </Link>
                       </td>
-                      <td className="px-5 py-3 text-muted">{p.internalCode ?? '—'}</td>
+                      <td className="px-5 py-3 font-mono text-muted">{p.internalCode ?? '—'}</td>
                       <td className="px-5 py-3">
                         <ConsentBadge state={p.consentState} />
                       </td>

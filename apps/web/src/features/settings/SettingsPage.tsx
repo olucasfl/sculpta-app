@@ -1,5 +1,7 @@
 import {
   AUDIT_ACTION_LABEL,
+  canAssignRole,
+  canManageMember,
   can,
   ClinicUpdate,
   Role,
@@ -14,6 +16,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
+import { ChangePasswordCard, InvitationsCard } from './TeamInvitations';
 import { Button } from '../../components/ui/Button';
 import { Badge, Card, CardHeader, PageHeader } from '../../components/ui/Card';
 import { Dialog } from '../../components/ui/Dialog';
@@ -26,8 +29,9 @@ import { cn, formatDateTime } from '../../lib/format';
 
 const TABS = [
   { id: 'clinica', label: 'Clínica' },
-  { id: 'usuarios', label: 'Usuários', permission: 'users.manage' },
+  { id: 'usuarios', label: 'Usuários', permission: 'members.read' },
   { id: 'auditoria', label: 'Auditoria', permission: 'audit.read' },
+  { id: 'conta', label: 'Minha conta' },
 ] as const;
 
 export function SettingsPage() {
@@ -58,7 +62,13 @@ export function SettingsPage() {
       </div>
       <div role="tabpanel">
         {current === 'clinica' && <ClinicSection canEdit={can(role, 'clinic.manage')} />}
-        {current === 'usuarios' && <UsersSection />}
+        {current === 'usuarios' && (
+          <>
+            <UsersSection />
+            <InvitationsCard />
+          </>
+        )}
+        {current === 'conta' && <ChangePasswordCard />}
         {current === 'auditoria' && <AuditSection />}
       </div>
     </>
@@ -185,13 +195,15 @@ function UsersSection() {
                       <select
                         aria-label={`Papel de ${u.name}`}
                         value={u.role}
-                        disabled={self || update.isPending}
+                        disabled={self || update.isPending || !me?.role || !canManageMember(me.role, u.role)}
                         onChange={(e) => change({ id: u.id, role: e.target.value as Role })}
-                        className="h-8 rounded-md border border-line-strong bg-surface px-2 text-sm disabled:bg-subtle"
+                        className="h-8 rounded-md border border-field bg-surface px-2 text-sm disabled:bg-subtle"
                       >
-                        {Role.options.map((r) => (
-                          <option key={r} value={r}>{ROLE_LABEL[r]}</option>
-                        ))}
+                        {Role.options
+                          .filter((r) => r === u.role || (me?.role && canAssignRole(me.role, r)))
+                          .map((r) => (
+                            <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+                          ))}
                       </select>
                     </td>
                     <td className="px-5 py-3">{u.active ? <Badge tone="ok">Ativo</Badge> : <Badge>Inativo</Badge>}</td>
@@ -216,6 +228,7 @@ function UsersSection() {
 
 function NewUserDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
+  const myRole = useAuth((s) => s.user?.role);
   const [v, setV] = useState({ name: '', email: '', password: '', role: 'RECEPCAO' as Role });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const create = useMutation({
@@ -249,9 +262,11 @@ function NewUserDialog({ open, onClose }: { open: boolean; onClose: () => void }
         <TextField label="E-mail" type="email" value={v.email} error={errors.email} onChange={(e) => setV({ ...v, email: e.target.value })} />
         <TextField label="Senha inicial" type="password" autoComplete="new-password" value={v.password} error={errors.password} hint="Ao menos 10 caracteres." onChange={(e) => setV({ ...v, password: e.target.value })} />
         <SelectField label="Papel" value={v.role} onChange={(e) => setV({ ...v, role: e.target.value as Role })}>
-          {Role.options.map((r) => (
-            <option key={r} value={r}>{ROLE_LABEL[r]}</option>
-          ))}
+          {Role.options
+            .filter((r) => myRole && canAssignRole(myRole, r))
+            .map((r) => (
+              <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+            ))}
         </SelectField>
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" onClick={onClose}>Cancelar</Button>

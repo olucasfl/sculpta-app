@@ -119,7 +119,7 @@ export function CaptureWizardPage() {
                     }}
                     className={cn(
                       'flex w-full flex-col items-center gap-2 rounded-lg border p-2 text-left text-sm transition-colors lg:flex-row',
-                      active ? 'border-accent bg-accent-soft' : 'border-line bg-surface hover:border-line-strong',
+                      active ? 'border-accent bg-accent-soft' : 'border-line bg-surface hover:border-field',
                     )}
                   >
                     <span className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-subtle text-xs font-semibold text-muted">

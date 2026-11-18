@@ -86,7 +86,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel, tone = '
         </>
       }
     >
-      <div className="text-[15px] text-muted">{description}</div>
+      <div className="text-base text-muted">{description}</div>
     </Dialog>
   );
 }

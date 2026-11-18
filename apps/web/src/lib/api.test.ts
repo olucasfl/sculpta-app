@@ -1,8 +1,18 @@
+import type { AuthUser } from '@sim/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError, refreshSession } from './api';
 import { useAuth } from './auth-store';
 
-const user = { id: 'u1', name: 'Ana', email: 'a@x.test', role: 'ADMIN', clinicId: 'c1', clinicName: 'C' } as const;
+const user: AuthUser = {
+  id: 'u1',
+  name: 'Ana',
+  email: 'a@x.test',
+  isPlatformAdmin: false,
+  clinics: [{ id: 'c1', name: 'C', role: 'OWNER' }],
+  role: 'OWNER',
+  clinicId: 'c1',
+  clinicName: 'C',
+};
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 

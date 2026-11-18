@@ -1,4 +1,4 @@
-import type { ApiErrorBody, LoginRequest, LoginResponse } from '@sim/contracts';
+import { CLINIC_HEADER, type ApiErrorBody, type LoginRequest, type LoginResponse, type SignupRequest } from '@sim/contracts';
 import { useAuth } from './auth-store';
 
 export class ApiError extends Error {
@@ -26,7 +26,7 @@ interface RequestOptions {
 }
 
 const BASE = '/api';
-const NO_RETRY = new Set(['/auth/login', '/auth/refresh', '/auth/logout']);
+const NO_RETRY = new Set(['/auth/login', '/auth/signup', '/auth/refresh', '/auth/logout']);
 
 function url(path: string, query?: Query) {
   const qs = new URLSearchParams();
@@ -49,6 +49,8 @@ async function send(path: string, opts: RequestOptions) {
   const token = useAuth.getState().accessToken;
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
+  const clinic = useAuth.getState().activeClinicId;
+  if (clinic) headers[CLINIC_HEADER] = clinic;
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
   try {
     return await fetch(url(path, opts.query), {
@@ -102,6 +104,13 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
 
 export async function login(input: LoginRequest) {
   const data = await api<LoginResponse>('/auth/login', { method: 'POST', body: input });
+  useAuth.getState().setSession(data.accessToken, data.user);
+  return data;
+}
+
+/** Criar conta: já entra logado. Sem clínica, a menos que haja convite para este e-mail. */
+export async function signup(input: SignupRequest) {
+  const data = await api<LoginResponse>('/auth/signup', { method: 'POST', body: input });
   useAuth.getState().setSession(data.accessToken, data.user);
   return data;
 }

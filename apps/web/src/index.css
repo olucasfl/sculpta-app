@@ -1,44 +1,193 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/jost';
 
+/*
+ * Sculpta · tokens do sistema de design (ver /DESIGN.md).
+ * Jost é pequena para o tamanho nominal (altura de minúscula ~0,46 em), então a escala
+ * de texto abaixo é maior que a padrão do Tailwind: corpo 16 px, nada abaixo de 13 px.
+ */
 @theme {
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: 'Jost Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --text-xs: 0.8125rem; /* 13 */
+  --text-xs--line-height: 1.25rem;
+  --text-sm: 0.9375rem; /* 15 */
+  --text-sm--line-height: 1.375rem;
+  --text-base: 1rem; /* 16 */
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.25rem; /* h2 */
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.625rem; /* h1 */
+  --text-2xl--line-height: 2rem;
+
+  --color-primary-50: #eef7f6;
+  --color-primary-100: #d5ecea;
+  --color-primary-200: #aad8d4;
+  --color-primary-300: #78bfba;
+  --color-primary-400: #44a29c;
+  --color-primary-500: #1f857f;
+  --color-primary-600: #0f6e6a;
+  --color-primary-700: #0b5955;
+  --color-primary-800: #0a4643;
+  --color-primary-900: #07322f;
+  --color-primary-950: #031f1d;
 
   --color-canvas: #f6f6f3;
   --color-surface: #ffffff;
   --color-subtle: #f0f0ec;
   --color-line: #e2e3de;
   --color-line-strong: #c9cbc4;
+  /* Borda de campos e controles: mínimo 3:1 (WCAG 1.4.11). */
+  --color-field: #7f8991;
   --color-ink: #1d2327;
   --color-muted: #5b6670;
-  --color-faint: #8a949c;
+  --color-faint: #626d76;
 
+  /* "accent" = cor de destaque para texto, bordas e foco; muda no modo escuro. */
   --color-accent: #0f6e6a;
-  --color-accent-hover: #0b5955;
-  --color-accent-soft: #e4f1ef;
-  --color-accent-ink: #0a4a47;
+  --color-accent-soft: #eef7f6;
+  --color-accent-ink: #0a4643;
 
-  --color-danger: #b42318;
-  --color-danger-soft: #fdecea;
-  --color-warn: #a15c07;
-  --color-warn-soft: #fdf3e3;
   --color-ok: #067647;
   --color-ok-soft: #e7f5ee;
+  --color-warn: #a15c07;
+  --color-warn-soft: #fdf3e3;
+  --color-danger: #b42318;
+  --color-danger-soft: #fdecea;
+  --color-info: #175cd3;
+  --color-info-soft: #eaf1fe;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
 
   --shadow-card: 0 1px 2px rgb(29 35 39 / 0.04), 0 1px 3px rgb(29 35 39 / 0.06);
   --shadow-pop: 0 12px 32px rgb(29 35 39 / 0.14);
+
+  --breakpoint-xs: 22.5rem;
+}
+
+/* Modo escuro: segue o sistema e pode ser forçado por [data-theme="dark"|"light"]. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --color-canvas: #0e1416;
+    --color-surface: #151d20;
+    --color-subtle: #1b2529;
+    --color-line: #26323a;
+    --color-line-strong: #3a4850;
+    --color-field: #6b7a83;
+    --color-ink: #e8edef;
+    --color-muted: #9aa7ae;
+    --color-faint: #7f8c94;
+    --color-accent: #78bfba;
+    --color-accent-soft: #123532;
+    --color-accent-ink: #aad8d4;
+    --color-ok: #4cc38a;
+    --color-ok-soft: #12301f;
+    --color-warn: #f0b259;
+    --color-warn-soft: #34270e;
+    --color-danger: #f4877c;
+    --color-danger-soft: #3a1815;
+    --color-info: #7aa7f5;
+    --color-info-soft: #14233f;
+    --shadow-card: none;
+    --shadow-pop: 0 12px 32px rgb(0 0 0 / 0.5);
+  }
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --color-canvas: #0e1416;
+  --color-surface: #151d20;
+  --color-subtle: #1b2529;
+  --color-line: #26323a;
+  --color-line-strong: #3a4850;
+  --color-field: #6b7a83;
+  --color-ink: #e8edef;
+  --color-muted: #9aa7ae;
+  --color-faint: #7f8c94;
+  --color-accent: #78bfba;
+  --color-accent-soft: #123532;
+  --color-accent-ink: #aad8d4;
+  --color-ok: #4cc38a;
+  --color-ok-soft: #12301f;
+  --color-warn: #f0b259;
+  --color-warn-soft: #34270e;
+  --color-danger: #f4877c;
+  --color-danger-soft: #3a1815;
+  --color-info: #7aa7f5;
+  --color-info-soft: #14233f;
+  --shadow-card: none;
+  --shadow-pop: 0 12px 32px rgb(0 0 0 / 0.5);
 }
 
 @layer base {
   html {
     -webkit-font-smoothing: antialiased;
+    text-size-adjust: 100%;
   }
   body {
-    @apply bg-canvas text-ink font-sans text-[15px] leading-6;
+    @apply bg-canvas text-ink font-sans text-base;
+    min-height: 100dvh;
+  }
+  /* Números alinhados em tabelas, KPIs e valores. */
+  table,
+  output,
+  .tnum {
+    font-variant-numeric: tabular-nums;
   }
   :focus-visible {
-    @apply outline-2 outline-offset-2 outline-accent;
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
   }
   dialog::backdrop {
-    background: rgb(29 35 39 / 0.35);
+    background: rgb(7 20 22 / 0.45);
   }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* Áreas seguras do iPhone (notch e barra inferior). Requer viewport-fit=cover. */
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility px-safe {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Cores da logo (seguem o tema). Valores fixos nos arquivos de docs/brand. */
+:root {
+  --logo-a: #78bfba;
+  --logo-b: #0f6e6a;
+  --logo-c: #0a4643;
+  --logo-text: #07322f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --logo-a: #d5ecea;
+    --logo-b: #78bfba;
+    --logo-c: #44a29c;
+    --logo-text: #ffffff;
+  }
+}
+:root[data-theme='dark'] {
+  --logo-a: #d5ecea;
+  --logo-b: #78bfba;
+  --logo-c: #44a29c;
+  --logo-text: #ffffff;
 }

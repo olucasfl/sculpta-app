@@ -1,9 +1,13 @@
 import { lazy, Suspense, type ReactNode } from 'react';
 import { createBrowserRouter, Navigate, Outlet, useLocation } from 'react-router';
 import { Loading } from '../components/ui/States';
+import { ClinicPickerPage } from '../features/auth/ClinicPickerPage';
 import { LoginPage } from '../features/auth/LoginPage';
+import { SignupPage } from '../features/auth/SignupPage';
+import { WaitingInvitePage } from '../features/auth/WaitingInvitePage';
 import { ConsentPage } from '../features/consent/ConsentPage';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
+import { PlatformAccountsPage, PlatformClinicPage, PlatformHomePage } from '../features/platform/PlatformPages';
 import { PatientDetailPage } from '../features/patients/PatientDetailPage';
 import { PatientsPage } from '../features/patients/PatientsPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
@@ -27,11 +31,53 @@ function RequireAuth() {
   return <Outlet />;
 }
 
+/**
+ * Telas do app exigem uma clínica ativa. Sem vínculo: "aguardando convite"; com vários e nenhuma
+ * escolhida: tela de escolha.
+ */
+function RequireClinic() {
+  const user = useAuth((s) => s.user);
+  if (!user) return <Loading label="Abrindo sessão…" />;
+  if (!user.clinicId) {
+    if (user.clinics.length > 1) return <Navigate to="/clinicas" replace />;
+    return <Navigate to={user.isPlatformAdmin ? '/plataforma' : '/aguardando'} replace />;
+  }
+  return <Outlet />;
+}
+
+/** Console da plataforma: só administrador da plataforma. */
+function RequirePlatform() {
+  const user = useAuth((s) => s.user);
+  if (!user) return <Loading label="Abrindo sessão…" />;
+  if (!user.isPlatformAdmin) return <Navigate to="/" replace />;
+  return <Outlet />;
+}
+
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
+  { path: '/cadastro', element: <SignupPage /> },
   {
     element: <RequireAuth />,
     children: [
+      { path: 'clinicas', element: <ClinicPickerPage /> },
+      {
+        path: 'plataforma',
+        element: <RequirePlatform />,
+        children: [
+          {
+            element: <AppShell platform />,
+            children: [
+              { index: true, element: <PlatformHomePage /> },
+              { path: 'clinicas/:id', element: <PlatformClinicPage /> },
+              { path: 'contas', element: <PlatformAccountsPage /> },
+            ],
+          },
+        ],
+      },
+      { path: 'aguardando', element: <WaitingInvitePage /> },
+      {
+        element: <RequireClinic />,
+        children: [
       {
         element: <AppShell />,
         children: [
@@ -46,6 +92,8 @@ export const router = createBrowserRouter([
           { path: 'simulations/:id', element: suspend(<SimulatorPage />) },
           { path: 'settings', element: <SettingsPage /> },
           { path: '*', element: <Navigate to="/" replace /> },
+        ],
+      },
         ],
       },
     ],

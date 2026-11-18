@@ -1,6 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>Sculpta</title>
   <rect width="512" height="512" rx="112" fill="#0f6e6a"/>
-  <ellipse cx="256" cy="240" rx="120" ry="156" fill="none" stroke="#ffffff" stroke-width="26"/>
-  <path d="M256 196 L256 268 L236 284" fill="none" stroke="#ffffff" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M212 320 Q256 348 300 320" fill="none" stroke="#ffffff" stroke-width="20" stroke-linecap="round"/>
+  <g transform="translate(256 256) scale(5.2) translate(-32 -33)">
+    <g transform="translate(2 2)">
+      <polygon points="30,2 56,16.5 30,31 4,16.5" fill="#ffffff"/>
+      <polygon points="4,16.5 30,31 30,60 4,45.5" fill="#aad8d4"/>
+      <polygon points="56,16.5 56,45.5 30,60 30,31" fill="#78bfba"/>
+    </g>
+  </g>
 </svg>

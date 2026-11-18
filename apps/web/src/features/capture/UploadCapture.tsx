@@ -69,7 +69,7 @@ export function UploadCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
 
   return (
     <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_17rem]">
-      <div className="mx-auto flex aspect-[3/4] w-full max-w-md items-center justify-center overflow-hidden rounded-xl border border-dashed border-line-strong bg-subtle">
+      <div className="mx-auto flex aspect-[3/4] w-full max-w-md items-center justify-center overflow-hidden rounded-xl border border-dashed border-field bg-subtle">
         {candidate ? (
           <img src={candidate.photo.previewUrl} alt={`Prévia: ${ANGLE_RULES[angle].label}`} className="size-full object-contain" />
         ) : (

@@ -9,12 +9,12 @@ type Size = 'sm' | 'md';
 const base =
   'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap';
 const variants: Record<Variant, string> = {
-  primary: 'bg-accent text-white hover:bg-accent-hover',
-  secondary: 'border border-line-strong bg-surface text-ink hover:bg-subtle',
+  primary: 'bg-primary-600 text-white hover:bg-primary-700',
+  secondary: 'border border-field bg-surface text-ink hover:bg-subtle',
   ghost: 'text-muted hover:bg-subtle hover:text-ink',
-  danger: 'bg-danger text-white hover:bg-[#912018]',
+  danger: 'bg-[#b42318] text-white hover:bg-[#912018]',
 };
-const sizes: Record<Size, string> = { sm: 'h-8 px-3 text-sm', md: 'h-10 px-4 text-[15px]' };
+const sizes: Record<Size, string> = { sm: 'h-8 px-3 text-sm', md: 'h-10 px-4 text-base' };
 
 export const buttonClass = (variant: Variant = 'primary', size: Size = 'md', extra?: string) =>
   cn(base, variants[variant], sizes[size], extra);

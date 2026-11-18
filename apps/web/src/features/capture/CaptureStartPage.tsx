@@ -30,7 +30,7 @@ export function CaptureStartPage() {
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar paciente"
               aria-label="Buscar paciente"
-              className="h-10 w-full rounded-lg border border-line-strong bg-surface pl-9 pr-3 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+              className="h-10 w-full rounded-lg border border-field bg-surface pl-9 pr-3 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
             />
           </div>
         </div>
