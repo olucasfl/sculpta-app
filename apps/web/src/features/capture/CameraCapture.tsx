@@ -1,0 +1,264 @@
+import { ANGLE_RULES, type PhotoAngle } from '@sim/contracts';
+import { FaceLandmarker, type FaceLandmarker as FL } from '@mediapipe/tasks-vision';
+import { Camera, CameraOff, Loader2, ScanFace, SwitchCamera } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Button } from '../../components/ui/Button';
+import { AngleGuide, CaptureChecks } from './CaptureChecks';
+import { encodeJpeg } from './imageEncoding';
+import type { PendingPhoto } from './types';
+import { evaluate, type FrameAnalysis } from './vision/analysis';
+import { analyzeResult, getLandmarker, measureSharpness } from './vision/faceLandmarker';
+
+type CameraState = 'idle' | 'starting' | 'live' | 'error';
+type ModelState = 'loading' | 'ready' | 'unavailable';
+
+const MANUAL_AFTER_MS = 10_000;
+
+function cameraError(e: unknown): string {
+  const name = (e as { name?: string }).name;
+  if (!window.isSecureContext) return 'A câmera só funciona em HTTPS ou localhost.';
+  if (name === 'NotAllowedError') return 'Permissão da câmera negada. Libere o acesso nas configurações do navegador ou use o envio de arquivo.';
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'Nenhuma câmera encontrada neste aparelho. Use o envio de arquivo.';
+  if (name === 'NotReadableError') return 'A câmera está em uso por outro aplicativo. Feche-o e tente de novo.';
+  return 'Não foi possível abrir a câmera. Use o envio de arquivo.';
+}
+
+const defaultFacing = (): 'user' | 'environment' =>
+  navigator.maxTouchPoints > 0 && Math.min(screen.width, screen.height) >= 600 ? 'environment' : 'user';
+
+/**
+ * Câmera com guia e validação em tempo real. A permissão só é pedida quando o usuário
+ * clica em "Abrir câmera". O vídeo nunca sai do navegador; só a foto escolhida é enviada.
+ */
+export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCaptured: (p: PendingPhoto) => void }) {
+  const video = useRef<HTMLVideoElement>(null);
+  const overlay = useRef<HTMLCanvasElement>(null);
+  const stream = useRef<MediaStream | null>(null);
+  const landmarker = useRef<FL | null>(null);
+  const latest = useRef<(FrameAnalysis & { landmarks: { x: number; y: number; z: number }[] | null }) | null>(null);
+  const [state, setState] = useState<CameraState>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [model, setModel] = useState<ModelState>('loading');
+  const [facing, setFacing] = useState(defaultFacing);
+  const [analysis, setAnalysis] = useState<FrameAnalysis | null>(null);
+  const [showLandmarks, setShowLandmarks] = useState(true);
+  const [since, setSince] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  const [busy, setBusy] = useState(false);
+
+  const stop = useCallback(() => {
+    stream.current?.getTracks().forEach((t) => t.stop());
+    stream.current = null;
+  }, []);
+
+  useEffect(() => () => stop(), [stop]);
+  useEffect(() => {
+    setSince(Date.now());
+    setAnalysis(null);
+  }, [angle]);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  async function start(nextFacing = facing) {
+    setError(null);
+    setState('starting');
+    stop();
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: nextFacing, width: { ideal: 1920 }, height: { ideal: 1440 } },
+        audio: false,
+      });
+      stream.current = s;
+      const v = video.current!;
+      v.srcObject = s;
+      await v.play();
+      setState('live');
+      setSince(Date.now());
+    } catch (e) {
+      setError(cameraError(e));
+      setState('error');
+    }
+    getLandmarker('VIDEO')
+      .then((l) => {
+        landmarker.current = l;
+        setModel('ready');
+      })
+      .catch(() => setModel('unavailable'));
+  }
+
+  // Laço de detecção: ~10 análises/s, nitidez ~3/s.
+  useEffect(() => {
+    if (state !== 'live') return;
+    let raf = 0;
+    let lastDetect = 0;
+    let lastSharp = 0;
+    let sharp: number | null = null;
+    const tick = () => {
+      const v = video.current;
+      const t = performance.now();
+      if (v && v.readyState >= 2 && t - lastDetect > 100) {
+        lastDetect = t;
+        if (t - lastSharp > 300) {
+          sharp = measureSharpness(v, v.videoWidth, v.videoHeight);
+          lastSharp = t;
+        }
+        const result = landmarker.current ? landmarker.current.detectForVideo(v, t) : null;
+        const a = analyzeResult(result, sharp);
+        latest.current = a;
+        setAnalysis(a);
+        drawOverlay(overlay.current, v, a.landmarks, showLandmarks);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [state, showLandmarks]);
+
+  const evaluation = analysis && model === 'ready' ? evaluate(angle, analysis) : null;
+  const rule = ANGLE_RULES[angle];
+  const allowManual = model === 'unavailable' || rule.profile || now - since > MANUAL_AFTER_MS;
+
+  async function capture(manual: boolean) {
+    const v = video.current;
+    if (!v) return;
+    setBusy(true);
+    try {
+      const a = latest.current;
+      const photo = await encodeJpeg(v, v.videoWidth, v.videoHeight);
+      onCaptured({
+        ...photo,
+        meta: {
+          width: photo.width,
+          height: photo.height,
+          yawDeg: a?.yawDeg ?? null,
+          sharpness: a?.sharpness ?? null,
+          faceDetected: a?.faceDetected ?? false,
+          faceHeightRatio: a?.faceHeightRatio ?? null,
+          validation: manual ? 'MANUAL' : 'AUTO',
+          source: 'CAMERA',
+          landmarks: angle === 'FRONT' && a?.landmarks ? a.landmarks.map((p) => [round(p.x), round(p.y), round(p.z)]) : undefined,
+        },
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const mirrored = facing === 'user';
+
+  return (
+    <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_17rem]">
+      <div className="relative mx-auto aspect-[3/4] w-full max-w-md overflow-hidden rounded-xl bg-ink">
+        <video ref={video} playsInline muted className={`size-full object-cover ${mirrored ? '-scale-x-100' : ''}`} />
+        <canvas ref={overlay} className={`pointer-events-none absolute inset-0 size-full object-cover ${mirrored ? '-scale-x-100' : ''}`} />
+        {state === 'live' && <AngleGuide angle={angle} ready={!!evaluation?.ready} />}
+        {state !== 'live' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-white">
+            {state === 'starting' ? (
+              <Loader2 className="size-6 animate-spin" aria-label="Abrindo câmera" />
+            ) : state === 'error' ? (
+              <>
+                <CameraOff className="size-6" aria-hidden />
+                <p role="alert" className="text-sm">{error}</p>
+                <Button variant="secondary" size="sm" onClick={() => start()}>Tentar de novo</Button>
+              </>
+            ) : (
+              <>
+                <Camera className="size-6" aria-hidden />
+                <p className="text-sm text-white/80">A permissão da câmera é pedida só agora.</p>
+                <Button onClick={() => start()}>Abrir câmera</Button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-4">
+        <div>
+          <p className="font-medium">{rule.label}</p>
+          <p className="text-sm text-muted">{rule.instruction}</p>
+        </div>
+
+        {state === 'live' && (
+          <>
+            {model === 'loading' && (
+              <p className="flex items-center gap-2 text-sm text-muted">
+                <Loader2 className="size-4 animate-spin" aria-hidden /> Carregando detecção facial…
+              </p>
+            )}
+            {model === 'unavailable' && (
+              <p role="alert" className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
+                A detecção facial não carregou neste aparelho. As fotos ficam marcadas como validação manual.
+              </p>
+            )}
+            {evaluation && <CaptureChecks checks={evaluation.checks} />}
+
+            <div className="flex flex-col gap-2">
+              <Button onClick={() => capture(false)} disabled={!evaluation?.ready} loading={busy} icon={<Camera className="size-4" aria-hidden />}>
+                {evaluation?.ready ? 'Capturar' : 'Aguardando posição'}
+              </Button>
+              {allowManual && (
+                <Button variant="secondary" size="sm" onClick={() => capture(true)} disabled={busy}>
+                  Capturar sem validação automática
+                </Button>
+              )}
+              {allowManual && (
+                <p className="text-xs text-muted">A foto fica marcada como “validação manual” no registro.</p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<SwitchCamera className="size-4" aria-hidden />}
+                onClick={() => {
+                  const next = facing === 'user' ? 'environment' : 'user';
+                  setFacing(next);
+                  void start(next);
+                }}
+              >
+                Trocar câmera
+              </Button>
+              <Button variant="ghost" size="sm" icon={<ScanFace className="size-4" aria-hidden />} aria-pressed={showLandmarks} onClick={() => setShowLandmarks((v) => !v)}>
+                {showLandmarks ? 'Ocultar pontos' : 'Mostrar pontos'}
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const round = (n: number) => Math.round(n * 10_000) / 10_000;
+
+function drawOverlay(
+  canvas: HTMLCanvasElement | null,
+  v: HTMLVideoElement,
+  landmarks: { x: number; y: number }[] | null,
+  show: boolean,
+) {
+  if (!canvas) return;
+  if (canvas.width !== v.videoWidth) canvas.width = v.videoWidth;
+  if (canvas.height !== v.videoHeight) canvas.height = v.videoHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!show || !landmarks) return;
+  ctx.fillStyle = 'rgba(94, 234, 212, 0.75)';
+  for (const p of landmarks) ctx.fillRect(p.x * canvas.width - 1, p.y * canvas.height - 1, 2, 2);
+  ctx.strokeStyle = 'rgba(94, 234, 212, 0.9)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (const c of FaceLandmarker.FACE_LANDMARKS_FACE_OVAL) {
+    const a = landmarks[c.start];
+    const b = landmarks[c.end];
+    if (!a || !b) continue;
+    ctx.moveTo(a.x * canvas.width, a.y * canvas.height);
+    ctx.lineTo(b.x * canvas.width, b.y * canvas.height);
+  }
+  ctx.stroke();
+}

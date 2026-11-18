@@ -1,0 +1,20 @@
+{
+  "name": "simulador-3d",
+  "private": true,
+  "packageManager": "pnpm@10.34.9",
+  "engines": { "node": ">=20.19" },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "check": "turbo run lint typecheck test build",
+    "db:dev": "pnpm --filter @sim/api db:dev",
+    "db:setup": "pnpm --filter @sim/api db:setup"
+  },
+  "devDependencies": {
+    "turbo": "2.11.13",
+    "prettier": "^3.6.2"
+  }
+}

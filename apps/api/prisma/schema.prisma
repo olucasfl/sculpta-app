@@ -1,0 +1,271 @@
+// Schema do Simulador Estético 3D (planejamento §7).
+// Toda tabela de negócio tem clinicId, e toda query da API filtra por ele.
+// As entidades de captura/reconstrução/simulação já existem aqui para estabilizar o schema;
+// os endpoints delas entram nas Fases 2–5.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  // NodeNext exige ".js" nos imports relativos do código compilado.
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  PROFISSIONAL
+  RECEPCAO
+}
+
+enum ConsentScope {
+  SIMULATION
+  MARKETING
+  RESEARCH
+}
+
+enum SignerRelation {
+  PACIENTE
+  RESPONSAVEL_LEGAL
+}
+
+enum PhotoAngle {
+  FRONT
+  LEFT_45
+  RIGHT_45
+  LEFT_90
+  RIGHT_90
+}
+
+enum PhotoValidation {
+  AUTO
+  MANUAL
+}
+
+enum CaptureStatus {
+  OPEN
+  COMPLETED
+  CANCELED
+}
+
+enum ReconstructionStatus {
+  QUEUED
+  PROCESSING
+  DONE
+  FAILED
+}
+
+enum ReconstructionSource {
+  VGGTFACE
+  TEMPLATE
+  FALLBACK_FIT
+}
+
+model Clinic {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String
+  cnpj          String?  @unique
+  retentionDays Int      @default(1825) @map("retention_days")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  users    User[]
+  patients Patient[]
+
+  @@map("clinics")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  clinicId     String   @map("clinic_id") @db.Uuid
+  clinic       Clinic   @relation(fields: [clinicId], references: [id])
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         Role
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  refreshTokens RefreshToken[]
+
+  @@index([clinicId])
+  @@map("users")
+}
+
+/// Refresh token rotativo. Guardamos só o hash. Reuso de um token já rotacionado
+/// revoga a família inteira (sinal de roubo).
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  familyId  String    @map("family_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  rotatedAt DateTime? @map("rotated_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+model Patient {
+  id             String    @id @default(uuid()) @db.Uuid
+  clinicId       String    @map("clinic_id") @db.Uuid
+  clinic         Clinic    @relation(fields: [clinicId], references: [id])
+  name           String
+  internalCode   String?   @map("internal_code")
+  phone          String?
+  birthDate      DateTime? @map("birth_date") @db.Date
+  notes          String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  /// Exclusão lógica do cadastro. Fotos, malhas e simulações são apagadas de fato.
+  deletedAt      DateTime? @map("deleted_at")
+  /// Última captura/simulação. Base do prazo de retenção dos biométricos.
+  lastActivityAt DateTime  @default(now()) @map("last_activity_at")
+
+  consents Consent[]
+  captures CaptureSession[]
+
+  @@index([clinicId, deletedAt])
+  @@map("patients")
+}
+
+model Consent {
+  id             String         @id @default(uuid()) @db.Uuid
+  clinicId       String         @map("clinic_id") @db.Uuid
+  patientId      String         @map("patient_id") @db.Uuid
+  patient        Patient        @relation(fields: [patientId], references: [id])
+  termVersion    String         @map("term_version")
+  scopes         ConsentScope[]
+  signerName     String         @map("signer_name")
+  signerRelation SignerRelation @map("signer_relation")
+  /// Imagem da assinatura no storage privado. Vira null quando os biométricos são apagados.
+  signatureKey   String?        @map("signature_key")
+  ip             String?
+  userAgent      String?        @map("user_agent")
+  collectedById  String         @map("collected_by_id") @db.Uuid
+  signedAt       DateTime       @default(now()) @map("signed_at")
+  revokedAt      DateTime?      @map("revoked_at")
+  revokedById    String?        @map("revoked_by_id") @db.Uuid
+
+  @@index([clinicId, patientId])
+  @@map("consents")
+}
+
+model CaptureSession {
+  id           String        @id @default(uuid()) @db.Uuid
+  clinicId     String        @map("clinic_id") @db.Uuid
+  patientId    String        @map("patient_id") @db.Uuid
+  patient      Patient       @relation(fields: [patientId], references: [id])
+  capturedById String        @map("captured_by_id") @db.Uuid
+  status       CaptureStatus @default(OPEN)
+  createdAt    DateTime      @default(now()) @map("created_at")
+
+  photos          Photo[]
+  reconstructions Reconstruction[]
+
+  @@index([clinicId, patientId])
+  @@map("capture_sessions")
+}
+
+model Photo {
+  id              String          @id @default(uuid()) @db.Uuid
+  captureId       String          @map("capture_id") @db.Uuid
+  capture         CaptureSession  @relation(fields: [captureId], references: [id], onDelete: Cascade)
+  angle           PhotoAngle
+  storageKey      String          @map("storage_key")
+  width           Int?
+  height          Int?
+  yawDeg          Float?          @map("yaw_deg")
+  sharpness       Float?
+  faceDetected    Boolean?        @map("face_detected")
+  validation      PhotoValidation @default(AUTO)
+  faceHeightRatio Float?          @map("face_height_ratio")
+  source          String          @default("CAMERA")
+  /// Landmarks do MediaPipe (só na vista frontal).
+  landmarks       Json?
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  @@unique([captureId, angle])
+  @@map("photos")
+}
+
+model Reconstruction {
+  id                  String               @id @default(uuid()) @db.Uuid
+  clinicId            String               @map("clinic_id") @db.Uuid
+  patientId           String               @map("patient_id") @db.Uuid
+  captureId           String               @map("capture_id") @db.Uuid
+  capture             CaptureSession       @relation(fields: [captureId], references: [id], onDelete: Cascade)
+  source              ReconstructionSource
+  status              ReconstructionStatus @default(QUEUED)
+  meshKey             String?              @map("mesh_key")
+  qualityScore        Float?               @map("quality_score")
+  sliderSchemaVersion Int                  @default(1) @map("slider_schema_version")
+  metrics             Json?
+  error               String?
+  errorDetail         String?              @map("error_detail")
+  attempts            Int                  @default(0)
+  /// Fila: próximo horário em que o job pode rodar e trava do processador.
+  nextRunAt           DateTime             @default(now()) @map("next_run_at")
+  lockedAt            DateTime?            @map("locked_at")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  finishedAt          DateTime?            @map("finished_at")
+
+  simulations Simulation[]
+
+  @@index([status, nextRunAt])
+  @@index([clinicId, patientId])
+  @@map("reconstructions")
+}
+
+model Simulation {
+  id               String         @id @default(uuid()) @db.Uuid
+  clinicId         String         @map("clinic_id") @db.Uuid
+  patientId        String         @map("patient_id") @db.Uuid
+  reconstructionId String         @map("reconstruction_id") @db.Uuid
+  reconstruction   Reconstruction @relation(fields: [reconstructionId], references: [id], onDelete: Cascade)
+  createdById      String         @map("created_by_id") @db.Uuid
+  name             String
+  notes            String?
+  createdAt        DateTime       @default(now()) @map("created_at")
+
+  versions SimulationVersion[]
+
+  @@index([clinicId, patientId])
+  @@map("simulations")
+}
+
+model SimulationVersion {
+  id           String     @id @default(uuid()) @db.Uuid
+  simulationId String     @map("simulation_id") @db.Uuid
+  simulation   Simulation @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+  name         String
+  description  String?
+  /// Validado por SimulationParams (packages/contracts).
+  params       Json
+  thumbnailKey String?    @map("thumbnail_key")
+  meshKey      String?    @map("mesh_key")
+  createdById  String     @map("created_by_id") @db.Uuid
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  @@map("simulation_versions")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  clinicId  String   @map("clinic_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String
+  entity    String
+  entityId  String   @map("entity_id")
+  ip        String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([clinicId, createdAt])
+  @@map("audit_logs")
+}

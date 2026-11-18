@@ -1,0 +1,36 @@
+{
+  "name": "@sim/face-assets",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./template-head.glb": "./dist/template-head.glb"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && tsx scripts/build-template.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@sim/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@sim/eslint-config": "workspace:*",
+    "@sim/tsconfig": "workspace:*",
+    "@types/node": "^20.19.0",
+    "eslint": "9.39.5",
+    "tsx": "^4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "4.1.12"
+  }
+}

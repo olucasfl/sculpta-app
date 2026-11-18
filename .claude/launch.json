@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "db",
+      "runtimeExecutable": "npx.cmd",
+      "runtimeArgs": ["pnpm@10.34.9", "db:dev"],
+      "port": 5433
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "npx.cmd",
+      "runtimeArgs": ["pnpm@10.34.9", "--filter", "@sim/api", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "npx.cmd",
+      "runtimeArgs": ["pnpm@10.34.9", "--filter", "@sim/web", "dev"],
+      "port": 5173
+    }
+  ]
+}
