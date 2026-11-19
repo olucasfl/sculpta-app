@@ -1,6 +1,13 @@
 # Etapa 6 — Rosto real do paciente: o que está pronto e o que falta
 
-**Estado (18/11/2026): preparada, não executada.** O que depende de GPU e de licença não foi feito, e nada aqui afirma que o rosto real funciona. Hoje o app mostra o **template genérico** com o selo "Modelo demonstrativo".
+**Estado (19/11/2026): prova de conceito do caminho B (FLAME 2023 Open, em CPU) funcionando nas fotos de uma pessoa; ainda NÃO integrada à API nem ao simulador.** O app continua mostrando o **template genérico** com o selo "Modelo demonstrativo". Os scripts estão em `services/worker/scripts` (`fit_poc.py`, `bake_texture.py`, `ear_align.py`, `ear_segment.py`, `compare_fits.py`). Não houve GPU: o ajuste leva ~5 s e a textura ~35 s numa CPU comum (uma pessoa, sem medir memória).
+
+## 0. O que a prova de conceito mostrou
+
+- **Vistas e geometria (uma pessoa, suas 9 fotos):** trocar 9 vistas por 5 muda a forma em ~1,0 mm (rosto); por 3 vistas (frente e 45°), ~1,1 mm. Isso mede **estabilidade**, não exatidão: hoje o ajuste usa só 105 pontos por foto e é dominado pelo modelo FLAME e pela frontal. As vistas extras ajudam mais a **textura** do que a forma; só um refinamento por imagem (silhueta/cor) deve fazê-las pesar na geometria.
+- **Orelha:** a do FLAME cai deslocada e é pequena; a orelha real é segmentada na foto de perfil (GrabCut com a malha como semente) e a malha é deformada até ela (IoU 0,86 e 0,92). Só testado em uma pessoa.
+- **Não validado:** outras pessoas, outros tons de pele, cabelo sobre a orelha, óculos, fundos claros. Precisa de pelo menos 3 pessoas com termo assinado.
+- **Licença:** FLAME 2023 Open é CC BY 4.0 (exige crédito); a textura oficial do FLAME é não comercial e **não é usada** (UV e textura próprios).
 
 ## 1. O que já está pronto no app
 
