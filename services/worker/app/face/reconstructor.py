@@ -14,6 +14,10 @@ import numpy as np
 from .. import pipeline
 from . import bases, fit, glb, hair, silhouette, texture
 
+# A silhueta de perfil melhora o erro de borda em ~1,5 mm, mas muda o formato do rosto em relação à primeira versão com
+# textura (a que ficou parecida com a pessoa). Desligada por padrão: o rosto fica como estava.
+REFINE_SILHOUETTE = False
+
 # O ajuste só mede a consistência dos pontos nas fotos, não a semelhança com o rosto real.
 # Sem validação contra um escaneamento, a confiança nunca passa de "média".
 QUALITY_CAP = 0.79
@@ -77,7 +81,9 @@ class FlameReconstructor:
             )
 
         V, beta, mirror, errors = fit.fit_views(views, self.fl, log=lambda *_: None)
-        V, beta, info = silhouette.refine(views, self.fl, self.masks, beta, mirror)
+        info: dict = {}
+        if REFINE_SILHOUETTE:
+            V, beta, info = silhouette.refine(views, self.fl, self.masks, beta, mirror)
         sil = info.get("after")
         score = quality_score(errors, len(views), 1.0, sil)
         if score < 0.2:

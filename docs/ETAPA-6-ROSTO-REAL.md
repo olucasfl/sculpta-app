@@ -80,3 +80,16 @@ No modelo reconstruído o cabelo já vem pintado na textura das fotos. Por cima 
 - Cabelo claro ou grisalho (pouco contraste com a pele) e barba acima da altura dos olhos podem enganar a medição por cor.
 
 **Não feito: app iOS com TrueDepth.** Não há Mac nesta máquina (não compila iOS) e o código não poderia ser testado; fica para quando houver um Mac ou serviço de build.
+
+## 8. Fidelidade do rosto: o que mudou entre as versões e por quê (branch `rosto-fiel`)
+
+A primeira versão com textura das fotos ficou muito parecida com a pessoa; as versões seguintes ficaram mais "limpas" e menos parecidas. Comparando a foto frontal com cada variante (mesmo enquadramento), as causas foram:
+
+- **Olhos procedurais** (esclera, íris e pupila desenhadas): ficavam arregalados e brancos; a pessoa tem o olhar entreaberto e a íris escura sob a pálpebra. **Voltaram a ser amostrados da foto** (`OPTS["procedural_eyes"] = False`).
+- **Limpeza de pele** (chroma suavizado, realces comprimidos e luz achatada): tirava as sombras e a barba, que carregam a semelhança; mesmo na versão leve, a pele ficava mais clara e lisa. **Desligada** (`OPTS["clean_skin"] = False`).
+- **Silhueta de perfil**: mudava a forma do rosto em ~1,5 mm. **Desligada por padrão** (`REFINE_SILHOUETTE = False`); continua disponível.
+- **Mistura em bandas e recorte da pessoa**: deixam a pele mais limpa, mas mudavam o aspecto do rosto. **Só valem fora do rosto** (pescoço, cabelo, orelhas, fundo).
+
+**Como está agora:** dentro do rosto (testa, olhos, nariz, lábios, bochechas) a textura usa a mistura da primeira versão (as 2 melhores fotos por ponto, peso `nz^6`, ganho de brilho global por vista, sem recorte), com os pesos suavizados no mapa para a cor passar de uma foto à outra sem degrau (o detalhe de cada foto não é borrado). Fora do rosto seguem as melhorias novas: pescoço em degradê, cabelo com a cor real, orelhas segmentadas e fundo sem vazamento. Tempo: ~38 s em CPU; `qualityScore` 0,72.
+
+**Como foi verificado:** só olhando a foto frontal ao lado do render (uma pessoa). Não há medida numérica de semelhança, e a primeira versão não foi guardada em arquivo para comparar pixel a pixel.

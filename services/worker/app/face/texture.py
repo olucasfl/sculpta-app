@@ -24,6 +24,10 @@ from . import ear_segment as es
 from . import fit as fp
 
 _verbose = True
+# Etapas de acabamento que podem ser desligadas (ablação: medir quais ajudam a semelhança com a pessoa).
+# Padrão: rosto fiel à foto (olhos amostrados da foto, pele com o relevo e as sombras originais); os olhos procedurais
+# ficavam arregalados e a limpeza de pele (mesmo leve) suavizava barba e contraste (comparado com a foto frontal).
+OPTS = {"clean_skin": False, "procedural_eyes": False, "neck": True, "legacy_face": True}
 
 
 def log(*args):
@@ -270,7 +274,7 @@ def procedural_eye(P, c, R, iris_bgr):
     return np.clip(ir * (1 - mix) + sc * mix, 0, 255).astype(np.uint8)
 
 
-def clean_skin(tex, skin):
+def clean_skin(tex, skin, highlight=0.5, flatten=0.0):
     """Pele limpa: chroma suavizado (preserva lábios por ser bilateral), realces comprimidos e luz de baixa frequência achatada."""
     ycc = cv2.cvtColor(tex, cv2.COLOR_BGR2YCrCb).astype(np.float32)
     Y, Cr, Cb = cv2.split(ycc)
@@ -283,12 +287,78 @@ def clean_skin(tex, skin):
         f = cv2.bilateralFilter(ch, 15, 10, 18)
         ch[skin] = f[skin]
     Yb, Yl = nconv(Y, 18), nconv(Y, 60)
-    Yn = Y - 0.75 * np.maximum(0, Y - Yb * 1.08)
-    Yn = Yn - 0.5 * (Yl - float(Yl[skin].mean()))
+    Yn = Y - highlight * np.maximum(0, Y - Yb * 1.08)  # só comprime realces de brilho
+    if flatten:  # achatar a luz de baixa frequência tira as sombras do rosto: desligado por padrão
+        Yn = Yn - flatten * (Yl - float(Yl[skin].mean()))
     Y[skin] = np.clip(Yn[skin], 0, 255)
     out = cv2.cvtColor(cv2.merge([Y, Cr, Cb]).clip(0, 255).astype(np.uint8), cv2.COLOR_YCrCb2BGR)
     soft = cv2.GaussianBlur(skin.astype(np.float32), (0, 0), 8)[..., None]
     return np.clip(tex * (1 - soft) + out.astype(np.float32) * soft, 0, 255).astype(np.uint8)
+
+
+FACE_MASKS = (
+    "face",
+    "forehead",
+    "nose",
+    "lips",
+    "eye_region",
+    "left_eye_region",
+    "right_eye_region",
+    "left_eyeball",
+    "right_eyeball",
+)
+
+
+def apply_legacy_face(tex, have, samples, weights, views, valid, tid, Fx, src, masks, ys, xs):
+    """Rosto igual à primeira versão com textura das fotos (a que ficou parecida com a pessoa):
+    cada ponto usa as 2 melhores fotos (peso nz^6, sem recorte da pessoa) com um ganho de brilho global por vista.
+    Vale só dentro do rosto (testa, olhos, nariz, lábios, bochechas), com borda suave; o resto do mapa
+    (pescoço, cabelo, orelhas, fundo) segue com as melhorias novas."""
+    W = np.stack(weights, 1)
+    ref = next(i for i, v in enumerate(views) if v["name"] == "FRONT")
+    gains = []
+    for i in range(len(views)):
+        both = (W[:, ref] > 0.15) & (W[:, i] > 0.15)
+        if i == ref or both.sum() < 500:
+            gains.append(np.ones(3, np.float32))
+            continue
+        g = np.median(samples[ref][both], axis=0) / np.maximum(np.median(samples[i][both], axis=0), 1.0)
+        gains.append(np.clip(g, 0.7, 1.45).astype(np.float32))
+    keep = np.argsort(-W, axis=1)[:, :2]
+    top2 = np.zeros_like(W, bool)
+    np.put_along_axis(top2, keep, True, axis=1)
+    # Cada pixel usa as cores de cada foto SEM borrar (o detalhe é o da foto); só os PESOS são suavizados no mapa,
+    # para a cor passar de uma foto à outra sem degrau (as faixas de tom nas bochechas e na testa).
+    acc2 = np.zeros(have.shape + (3,), np.float32)
+    den2 = np.zeros(have.shape, np.float32)
+    for i in range(len(views)):
+        wi = np.where(top2[:, i], W[:, i], 0).astype(np.float32)
+        col2d = np.zeros(have.shape + (3,), np.float32)
+        w2d = np.zeros(have.shape, np.float32)
+        col2d[ys, xs] = samples[i] * gains[i]
+        w2d[ys, xs] = wi
+        w2d = cv2.GaussianBlur(w2d, (0, 0), 7)
+        acc2 += col2d * w2d[..., None]
+        den2 += w2d
+    legacy = np.zeros_like(tex)
+    have_l = valid & (den2 > 0.02)
+    legacy[have_l] = np.clip(acc2[have_l] / den2[have_l][:, None], 0, 255).astype(np.uint8)
+
+    # região do rosto no mapa: triângulos cujos 3 cantos estão nas máscaras do rosto
+    orig = np.zeros(int(Fx.max()) + 1, bool)
+    for k in FACE_MASKS:
+        orig[np.asarray(masks[k], int)] = True
+    tri_in = orig[src[Fx]].all(axis=1)
+    fw = np.zeros(have.shape, np.float32)
+    fw[ys, xs] = tri_in[tid[ys, xs]].astype(np.float32)
+    fw = cv2.GaussianBlur(fw, (0, 0), 6)
+    use = (fw > 0.001) & have_l
+    wmix = np.where(use, fw, 0.0)[..., None]
+    out = np.clip(tex.astype(np.float32) * (1 - wmix) + legacy.astype(np.float32) * wmix, 0, 255).astype(np.uint8)
+    new_have = have.copy()
+    new_have[use & (fw > 0.5)] = 255
+    log(f"  rosto como na primeira versão com textura: {int((fw > 0.5).sum() / max(valid.sum(), 1) * 100)}% do mapa")
+    return out, new_have
 
 
 def deform_ears(V, F, masks, views, mirror):
@@ -378,7 +448,7 @@ def bake(V, views, F, masks, mirror, out_dir=None):
     face_idx = np.asarray(masks["face"], int)
     head_idx = np.unique(F.ravel())
 
-    samples, weights = [], []
+    samples, weights, weights_legacy = [], [], []
     for v in views:
         h, w = v["img"].shape[:2]
         pc = V @ v["R"].T
@@ -397,6 +467,7 @@ def bake(V, views, F, masks, mirror, out_dir=None):
         wgt = np.clip(nz, 0, 1) ** 3 * inside * visible * person
         samples.append(col)
         weights.append(wgt.astype(np.float32))
+        weights_legacy.append((np.clip(nz, 0, 1) ** 6 * inside * visible).astype(np.float32))
         if out_dir is not None:
             cv2.imwrite(str(out_dir / f"mascara_{v['name']}.png"), mask.astype(np.uint8) * 255)
         log(
@@ -466,6 +537,9 @@ def bake(V, views, F, masks, mirror, out_dir=None):
     del low_t, high_t, mixed_tex
     log(f"  pixels com foto: {(have > 0).sum() / valid.sum() * 100:.1f}% do mapa válido")
 
+    if OPTS["legacy_face"]:
+        tex, have = apply_legacy_face(tex, have, samples, weights_legacy, views, valid, tid, Fx, src, masks, ys, xs)
+
     # ---- topo/fundo da cabeça e pescoço: a geometria ou as fotos não cobrem; usa cores reais, sem inventar detalhe
     Y2 = np.full((TEX, TEX), np.nan, np.float32)
     Y2[ys, xs] = Pv[:, 1]
@@ -501,7 +575,8 @@ def bake(V, views, F, masks, mirror, out_dir=None):
         & (ycc0[..., 0] > 70)
     )
     skin_zone = skin_zone & cv2.erode(is_skin.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)
-    tex = clean_skin(tex, skin_zone)
+    if OPTS["clean_skin"]:
+        tex = clean_skin(tex, skin_zone)
     log(f"  pele limpa em {skin_zone.sum() / valid.sum() * 100:.1f}% do mapa")
 
     hair_seen = valid & (have > 0) & in_head_map & (Y2 > y_eye + 0.09)
@@ -518,7 +593,7 @@ def bake(V, views, F, masks, mirror, out_dir=None):
     neck_low = neck_low[V[neck_low][:, 1] < y_chin - 0.035]
     chin_zone = valid & (have > 0) & in_head_map & (Y2 >= y_chin) & (Y2 < y_chin + 0.03)
     log(f"  pescoço: {len(neck_low)} vértices baixos, {int(chin_zone.sum())} pixels na zona do queixo")
-    if len(neck_low) > 20 and chin_zone.sum() > 200:
+    if OPTS["neck"] and len(neck_low) > 20 and chin_zone.sum() > 200:
         pxn = fp.project(V[neck_low] @ fv["R"].T, fv["s"], fv["t"], mirror) * fv["H"]
         hh, ww = fv["img"].shape[:2]
         okp = (pxn[:, 0] > 2) & (pxn[:, 0] < ww - 3) & (pxn[:, 1] > 2) & (pxn[:, 1] < hh - 3)
@@ -560,6 +635,8 @@ def bake(V, views, F, masks, mirror, out_dir=None):
         ("esquerdo", "left_eyeball", xs < 0.24 * TEX),
         ("direito", "right_eyeball", xs >= 0.24 * TEX),
     ):
+        if not OPTS["procedural_eyes"]:
+            break
         sel = eye_px & side
         if not sel.any():
             continue
