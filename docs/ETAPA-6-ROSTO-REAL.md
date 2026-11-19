@@ -97,3 +97,13 @@ A primeira versão com textura das fotos ficou muito parecida com a pessoa; as v
 ## 9. Tentativa descartada: contorno da mandíbula como restrição de forma
 
 Medido na foto frontal, o modelo estava mais largo que o contorno da mandíbula e das bochechas detectado pelo MediaPipe (~17 px de 223). Usar esse contorno como restrição linear na forma (e voltar à mistura em duas bandas) fechou essa diferença para ~−2 px sem piorar os pontos, **mas o rosto resultante ficou magro e deformado na avaliação visual** (queixo alongado e estreito; mesmo sem os pontos da base do queixo). A medida mais "certa" não deu o rosto mais parecido: o contorno de pontos do MediaPipe fica dentro da pele (não é a borda do rosto), então forçar o modelo sobre ele estreita demais. O código foi **revertido** (`git revert` do commit `7b3fbfa`); o estado do rosto é o do commit `7e32faa`. Quem retomar isso deve comparar com a foto, e não só com os pontos.
+
+## 10. Emendas, arcos no pescoço e mancha atrás da cabeça (branch `melhorias-rosto`)
+
+Sobre o rosto de hoje (mesma geometria, mesmo formato; o ajuste de contorno da seção 9 segue descartado), três defeitos visíveis foram atacados, cada um medido por comparação visual de variantes lado a lado:
+
+- **Emendas e manchas de cor no rosto:** dentro do rosto voltou a mistura em duas bandas (`OPTS["legacy_face"] = False`): a cor de baixa frequência vem de todas as fotos e o detalhe das duas melhores. Sumiram as linhas de emenda nas bochechas e na testa; olhos da foto e sem limpeza de pele (como já estava).
+- **Arcos de pele ao lado do pescoço e atrás da mandíbula:** a pele fora do rosto, entre a altura do queixo e a dos olhos, passa a ter só a cor suave (borrão largo, 16 px) da própria pele (`OPTS["side_smooth"]`). Não toca o rosto, o cabelo nem as orelhas.
+- **Mancha clara atrás da cabeça (parede):** o GrabCut sorteia a inicialização, então o recorte da pessoa (e a textura) **mudava a cada execução**, e às vezes deixava entrar parede. Agora a semente é fixa (duas execuções dão a mesma textura, 0 pixels de diferença) e pixels claros e neutros (parede) nunca contam como pessoa.
+
+Verificação: imagens (frente ao lado da foto e 5 ângulos), 11 testes do worker, ~41 s em CPU, `qualityScore` 0,72. Uma pessoa; sem medida numérica de semelhança.

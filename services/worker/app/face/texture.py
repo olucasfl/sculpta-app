@@ -27,7 +27,7 @@ _verbose = True
 # Etapas de acabamento que podem ser desligadas (ablação: medir quais ajudam a semelhança com a pessoa).
 # Padrão: rosto fiel à foto (olhos amostrados da foto, pele com o relevo e as sombras originais); os olhos procedurais
 # ficavam arregalados e a limpeza de pele (mesmo leve) suavizava barba e contraste (comparado com a foto frontal).
-OPTS = {"clean_skin": False, "procedural_eyes": False, "neck": True, "legacy_face": True}
+OPTS = {"clean_skin": False, "procedural_eyes": False, "neck": True, "legacy_face": False, "side_smooth": True}
 
 
 def log(*args):
@@ -196,10 +196,19 @@ def person_mask(img, face_px, head_px):
     m[:, -b:] = cv2.GC_BGD
     m[:b, :] = cv2.GC_BGD
     try:
+        cv2.setRNGSeed(
+            0
+        )  # o GrabCut sorteia a inicialização: sem a semente, o recorte (e a textura) mudava a cada execução
         cv2.grabCut(small, m, None, np.zeros((1, 65)), np.zeros((1, 65)), 4, cv2.GC_INIT_WITH_MASK)
     except cv2.error:
         pass
     fg = ((m == cv2.GC_FGD) | (m == cv2.GC_PR_FGD)).astype(np.uint8) * 255
+    # parede e fundo claros e neutros nunca são a pessoa (o GrabCut às vezes inclui pedaços de parede)
+    ycc = cv2.cvtColor(small, cv2.COLOR_BGR2YCrCb)
+    wall = (
+        (ycc[..., 0] > 165) & (np.abs(ycc[..., 1].astype(int) - 128) < 9) & (np.abs(ycc[..., 2].astype(int) - 128) < 9)
+    )
+    fg[wall] = 0
     fg = cv2.erode(fg, np.ones((5, 5), np.uint8))
     return cv2.resize(fg, (w, h), interpolation=cv2.INTER_NEAREST) > 0
 
@@ -309,6 +318,17 @@ FACE_MASKS = (
 )
 
 
+def face_weight_map(tid, Fx, src, masks, ys, xs, shape, sigma=6):
+    """Mapa (0-1) de onde fica o rosto no mapa de textura: triângulos cujos 3 cantos estão nas máscaras do rosto."""
+    orig = np.zeros(int(Fx.max()) + 1, bool)
+    for k in FACE_MASKS:
+        orig[np.asarray(masks[k], int)] = True
+    tri_in = orig[src[Fx]].all(axis=1)
+    fw = np.zeros(shape, np.float32)
+    fw[ys, xs] = tri_in[tid[ys, xs]].astype(np.float32)
+    return cv2.GaussianBlur(fw, (0, 0), sigma)
+
+
 def apply_legacy_face(tex, have, samples, weights, views, valid, tid, Fx, src, masks, ys, xs):
     """Rosto igual à primeira versão com textura das fotos (a que ficou parecida com a pessoa):
     cada ponto usa as 2 melhores fotos (peso nz^6, sem recorte da pessoa) com um ganho de brilho global por vista.
@@ -345,13 +365,7 @@ def apply_legacy_face(tex, have, samples, weights, views, valid, tid, Fx, src, m
     legacy[have_l] = np.clip(acc2[have_l] / den2[have_l][:, None], 0, 255).astype(np.uint8)
 
     # região do rosto no mapa: triângulos cujos 3 cantos estão nas máscaras do rosto
-    orig = np.zeros(int(Fx.max()) + 1, bool)
-    for k in FACE_MASKS:
-        orig[np.asarray(masks[k], int)] = True
-    tri_in = orig[src[Fx]].all(axis=1)
-    fw = np.zeros(have.shape, np.float32)
-    fw[ys, xs] = tri_in[tid[ys, xs]].astype(np.float32)
-    fw = cv2.GaussianBlur(fw, (0, 0), 6)
+    fw = face_weight_map(tid, Fx, src, masks, ys, xs, have.shape)
     use = (fw > 0.001) & have_l
     wmix = np.where(use, fw, 0.0)[..., None]
     out = np.clip(tex.astype(np.float32) * (1 - wmix) + legacy.astype(np.float32) * wmix, 0, 255).astype(np.uint8)
@@ -628,6 +642,23 @@ def bake(V, views, F, masks, mirror, out_dir=None):
         tex[neck_zone] = np.clip(mixed[neck_zone], 0, 255).astype(np.uint8)
         have[neck_zone] = 255
         log(f"  pescoço suavizado: pele {skin.astype(int).tolist()} -> camiseta {shirt.astype(int).tolist()}")
+
+    # ---- pele ao lado do pescoço e atrás da mandíbula (fora do rosto): as emendas entre fotos desenhavam arcos;
+    # aqui só vale a cor suave da própria pele (borrão largo), sem tocar no rosto nem no cabelo.
+    if OPTS["side_smooth"]:
+        fw_side = face_weight_map(tid, Fx, src, masks, ys, xs, have.shape, sigma=4)
+        ycs = cv2.cvtColor(tex, cv2.COLOR_BGR2YCrCb)
+        skin_s = (ycs[..., 1] >= 134) & (ycs[..., 1] <= 185) & (ycs[..., 0] > 60)
+        zone = (valid & in_head_map & skin_s & (fw_side < 0.05) & (Y2 < y_eye) & (Y2 > y_chin - 0.10)).astype(
+            np.float32
+        )
+        zb = cv2.GaussianBlur(zone, (0, 0), 16)
+        smooth_side = (
+            cv2.GaussianBlur(tex.astype(np.float32) * zone[..., None], (0, 0), 16) / np.maximum(zb, 1e-3)[..., None]
+        )
+        soft = (cv2.GaussianBlur(zone, (0, 0), 5) * (zb > 0.05))[..., None]
+        tex = np.clip(tex.astype(np.float32) * (1 - soft) + smooth_side * soft, 0, 255).astype(np.uint8)
+        log(f"  pele lateral suavizada em {int(zone.sum() / max(valid.sum(), 1) * 100)}% do mapa")
 
     # ---- olhos procedurais (esclera, íris, anel límbico, pupila); a cor da íris vem da foto frontal
     eye_px = (ys >= HEAD_V * TEX) & (xs < 0.5 * TEX)

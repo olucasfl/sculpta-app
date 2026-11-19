@@ -48,6 +48,7 @@ def segment_ear(img, outline, centroid, face_dir, size):
     ycc = cv2.cvtColor(crop, cv2.COLOR_BGR2YCrCb)
     mask[(ycc[..., 0] < 36) & (mask != cv2.GC_FGD)] = cv2.GC_BGD
     try:
+        cv2.setRNGSeed(0)  # resultado reproduzível
         cv2.grabCut(crop, mask, None, np.zeros((1, 65)), np.zeros((1, 65)), 6, cv2.GC_INIT_WITH_MASK)
     except cv2.error:
         pass
