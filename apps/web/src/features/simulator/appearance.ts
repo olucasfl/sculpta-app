@@ -15,6 +15,8 @@ export interface Appearance {
   /** Cor da íris vinda da foto (hex); se existir, vale no lugar da cor escolhida. */
   irisHex: string | null;
   hairVisible: boolean;
+  /** Fios finos de cabelo por cima da casca (experimental; só no modelo reconstruído). */
+  hairStrands: boolean;
   hairHex: string;
   /** 0 a 1: espessura da camada de cabelo. */
   hairVolume: number;
@@ -33,6 +35,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   eyeColor: 'castanho',
   irisHex: null,
   hairVisible: true,
+  hairStrands: false,
   hairHex: '#3b2a1e',
   hairVolume: 0.5,
   hairLength: 0.25,

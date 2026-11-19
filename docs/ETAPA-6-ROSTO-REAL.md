@@ -107,3 +107,12 @@ Sobre o rosto de hoje (mesma geometria, mesmo formato; o ajuste de contorno da s
 - **Mancha clara atrás da cabeça (parede):** o GrabCut sorteia a inicialização, então o recorte da pessoa (e a textura) **mudava a cada execução**, e às vezes deixava entrar parede. Agora a semente é fixa (duas execuções dão a mesma textura, 0 pixels de diferença) e pixels claros e neutros (parede) nunca contam como pessoa.
 
 Verificação: imagens (frente ao lado da foto e 5 ângulos), 11 testes do worker, ~41 s em CPU, `qualityScore` 0,72. Uma pessoa; sem medida numérica de semelhança.
+
+## 11. Olhos, orelha e cabelo simples (branch `melhorias-rosto`)
+
+- **Olhos:** desenhados DENTRO da abertura real do olho na foto frontal (contorno e íris do MediaPipe, 478 pontos): esclera e íris com a cor medida na foto, tamanho e posição da íris da foto, sombra das pálpebras e um pequeno reflexo. Fora da abertura fica a pele da pálpebra, também da foto. Os olhos procedurais antigos eram arregalados; os amostrados direto da foto vinham com a sombra da pálpebra pintada no globo. Resultado: olhar entreaberto como o da pessoa. Cor castanha escolhida sobre as bordas do que a foto mostra; a cor exata depende da foto.
+- **Orelha:** o halo escuro e borrado atrás dela vinha de preencher uma esfera de 4 cm; agora é uma elipse do tamanho da orelha (a orelha 3D, já alinhada e ampliada à real, cobre o resto). O cabelo que ficava dentro da área da orelha (a máscara pegava uma margem) é refeito só com pele: o critério é "não tem cor de pele", não "é escuro", então a concha, mesmo sombreada, fica intacta. O preenchimento deixou de usar a margem de fora como fonte (puxava cabelo).
+- **Cabelo simples:** a casca de cabelo do simulador passa a nascer exatamente onde a textura das fotos mostra cabelo (`_HAIR`), com a cor medida e a borda suavizada entre vértices vizinhos (a malha tem ~5 mil vértices: sem isso a borda saía em degraus). Não cobre olhos nem sobrancelhas. Os fios finos continuam como opção experimental, desligada por padrão.
+- **Tela:** o teste do pincel estourava os 60 s (3D em software, ~1 min); o teto desse teste subiu para 150 s.
+
+**Limites:** a linha do cabelo ainda tem uma leve irregularidade nas têmporas (resolução da malha); o cabelo é uma casca de cor uniforme, sem fios, sem mecha, e o fundo da cabeça é preenchimento. A orelha 3D segue sendo a do FLAME deformada; o contorno interno dela é o da foto. Uma pessoa, conferido a olho no simulador (frente, 45° e perfis).

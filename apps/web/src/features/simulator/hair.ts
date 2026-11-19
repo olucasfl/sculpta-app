@@ -6,6 +6,12 @@ export interface HairParams {
   hairline: number;
   /** Altura dos olhos no modelo; sem ela, supõe 58% da altura da cabeça. */
   eyeY?: number;
+  /**
+   * Cobertura de cabelo por vértice (0 a 1), medida na textura das fotos (`_HAIR` do .glb). Com ela, a casca nasce
+   * exatamente onde há cabelo na foto (a linha do cabelo é a da pessoa) e some suavemente na borda; sem ela, a linha
+   * do cabelo vem dos controles (modelo demonstrativo).
+   */
+  coverage?: ArrayLike<number>;
 }
 
 const smooth = (a: number, b: number, x: number) => {
@@ -49,7 +55,7 @@ export function buildHairGeometry(head: THREE.BufferGeometry, p: HairParams): TH
     // 0 = de lado, 1 = de frente, -1 = de trás
     const front = v.z;
     const threshold = front > 0 ? THREE.MathUtils.lerp(sideY, frontY, smooth(0.05, 0.9, front)) : THREE.MathUtils.lerp(sideY, backY, smooth(0, 0.6, -front));
-    weight[i] = smooth(threshold, threshold + feather, pos.getY(i));
+    weight[i] = p.coverage ? p.coverage[i]! : smooth(threshold, threshold + feather, pos.getY(i));
   }
 
   const keep: number[] = [];

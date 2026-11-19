@@ -26,7 +26,21 @@ def smoothstep(a: float, b: float, x: np.ndarray) -> np.ndarray:
     return t * t * (3 - 2 * t)
 
 
-def hair_weights(tex, uv, positions, masks, head_rows: float, y_eye: float):
+def smooth_on_mesh(values, faces, iterations=4):
+    """Média entre vértices vizinhos (a malha tem ~5 mil vértices: sem isso a borda do cabelo sai em degraus)."""
+    n = len(values)
+    a = np.concatenate([faces[:, 0], faces[:, 1], faces[:, 2], faces[:, 1], faces[:, 2], faces[:, 0]])
+    b = np.concatenate([faces[:, 1], faces[:, 2], faces[:, 0], faces[:, 0], faces[:, 1], faces[:, 2]])
+    deg = np.bincount(a, minlength=n).astype(np.float64) + 1.0
+    out = np.asarray(values, np.float64).copy()
+    for _ in range(iterations):
+        acc = out.copy()
+        np.add.at(acc, a, out[b])
+        out = acc / deg
+    return out
+
+
+def hair_weights(tex, uv, positions, masks, head_rows: float, y_eye: float, faces=None):
     """Peso de cabelo (n,) para cada vértice original e a cor média do cabelo (hex).
 
     uv: (n,2) coordenadas de cada vértice (as primeiras n linhas da malha expandida são os vértices originais);
@@ -48,6 +62,9 @@ def hair_weights(tex, uv, positions, masks, head_rows: float, y_eye: float):
     )
     w[skip] = 0.0
     w[np.asarray(uv)[:, 1] >= head_rows] = 0.0  # ilhas de olhos e orelhas
+    if faces is not None:
+        w = smooth_on_mesh(w, np.asarray(faces, int))
+        w[skip] = 0.0
     w = np.clip((w - 0.25) / 0.5, 0, 1)  # limiar suave: só cobertura clara vira fio
 
     rows = int(head_rows * size)

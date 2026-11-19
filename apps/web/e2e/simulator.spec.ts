@@ -40,6 +40,7 @@ async function strokeOnFace(page: Page) {
 
 test('pincel: modelar, desfazer, salvar com a escultura e recarregar', async ({ page }, info) => {
   test.skip(info.project.name !== 'desktop-1440x900', 'o fluxo do pincel é verificado no desktop; os outros viewports têm as capturas de tela');
+  test.setTimeout(150_000); // o 3D roda em WebGL por software: com o recarregamento o fluxo passa de 60 s
   await openSimulator(page);
   const dir = join('e2e', 'screenshots', info.project.name);
   mkdirSync(dir, { recursive: true });

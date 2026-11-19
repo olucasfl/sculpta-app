@@ -97,7 +97,13 @@ class FlameReconstructor:
         eye_ids = np.concatenate([np.asarray(self.masks[k], int) for k in ("left_eyeball", "right_eyeball")])
         off = head_offset(r["V"], self.masks)
         hair_w, hair_hex = hair.hair_weights(
-            r["tex"], r["Ux"][:n0], r["V"], self.masks, texture.HEAD_V, float(r["V"][eye_ids][:, 1].mean())
+            r["tex"],
+            r["Ux"][:n0],
+            r["V"],
+            self.masks,
+            texture.HEAD_V,
+            float(r["V"][eye_ids][:, 1].mean()),
+            faces=self.fl["faces"],
         )
         # nível dos olhos e plano da frente do rosto, já no espaço do simulador (o modelo é transladado por `off`)
         eye_y = float(r["V"][eye_ids][:, 1].mean() + off[1])

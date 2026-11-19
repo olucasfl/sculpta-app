@@ -166,3 +166,16 @@ def test_cobertura_de_cabelo_so_no_escuro_sem_cor_de_pele_acima_dos_olhos():
     assert w[1] == 0.0  # testa/sobrancelha (abaixo de y_eye + 5 cm, à frente) não vira fio
     assert w[3] == w[4] == w[5] == 0.0  # orelha, olho e pescoço ficam de fora
     assert color.startswith("#") and len(color) == 7
+
+
+def test_suavizar_na_malha_tira_degraus_e_preserva_a_media():
+    from app.face.hair import smooth_on_mesh
+
+    # tira de triângulos: 0..5 em fila; só os dois primeiros vértices têm cabelo
+    faces = np.array([[0, 1, 2], [1, 2, 3], [2, 3, 4], [3, 4, 5]])
+    w = np.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0])
+    s = smooth_on_mesh(w, faces, iterations=3)
+    assert s[0] > s[2] > s[4] > s[5] >= 0  # degradê contínuo, sem salto de 1 para 0
+    assert np.all((s >= 0) & (s <= 1))
+    flat = smooth_on_mesh(np.ones(6), faces, iterations=3)
+    assert np.allclose(flat, 1.0)  # área toda coberta continua toda coberta

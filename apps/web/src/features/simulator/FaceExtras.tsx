@@ -86,7 +86,7 @@ export function BrowsAndLashes({ head, eyes, browHex }: { head: THREE.Mesh; eyes
 
 /** Cabelo aproximado: casca sobre o crânio, com listras de fios por ruído e espessura que some na borda. */
 export function Hair({ head, params, hex }: { head: THREE.Mesh; params: HairParams; hex: string }) {
-  const geometry = useMemo(() => buildHairGeometry(head.geometry, params), [head, params.volume, params.length, params.hairline, params.eyeY]); // eslint-disable-line react-hooks/exhaustive-deps
+  const geometry = useMemo(() => buildHairGeometry(head.geometry, params), [head, params.volume, params.length, params.hairline, params.eyeY, params.coverage]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => geometry?.dispose(), [geometry]);
   const material = useMemo(() => {
     const m = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.55, metalness: 0.0 });

@@ -126,6 +126,7 @@ class View:
         self.t = np.zeros(2)
         self.weight = np.ones(len(obs_px))
         self.err = None
+        self.landmarks: np.ndarray | None = None
 
 
 def fit_view(view, fl, beta, mirror, flip_yaw=False, iters=1, fix_yaw=None):
@@ -203,7 +204,9 @@ def make_view(landmarker, fl, name, img, path=""):
     if lm is None:
         return None
     h, w = img.shape[:2]
-    return View(name, img, lm[fl["idx"], :2] * np.array([w, h]), path)
+    view = View(name, img, lm[fl["idx"], :2] * np.array([w, h]), path)
+    view.landmarks = lm[:, :2] * np.array([w, h])  # os 478 pontos em pixels (inclui o contorno dos olhos e a íris)
+    return view
 
 
 def fit_views(views, fl, log=print):

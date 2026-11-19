@@ -27,7 +27,14 @@ _verbose = True
 # Etapas de acabamento que podem ser desligadas (ablação: medir quais ajudam a semelhança com a pessoa).
 # Padrão: rosto fiel à foto (olhos amostrados da foto, pele com o relevo e as sombras originais); os olhos procedurais
 # ficavam arregalados e a limpeza de pele (mesmo leve) suavizava barba e contraste (comparado com a foto frontal).
-OPTS = {"clean_skin": False, "procedural_eyes": False, "neck": True, "legacy_face": False, "side_smooth": True}
+OPTS = {
+    "clean_skin": False,
+    "procedural_eyes": False,
+    "neck": True,
+    "legacy_face": False,
+    "side_smooth": True,
+    "calibrated_eyes": True,
+}
 
 
 def log(*args):
@@ -424,12 +431,90 @@ def load_masks():
         return fp._Unpickler(f, encoding="latin1").load()
 
 
+# Contorno da abertura do olho e íris no MediaPipe (esquerdo = esquerdo da pessoa, que fica à direita da imagem).
+LEFT_EYE_RING = [263, 249, 390, 373, 374, 380, 381, 382, 362, 398, 384, 385, 386, 387, 388, 466]
+RIGHT_EYE_RING = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
+LEFT_IRIS, RIGHT_IRIS = (473, [474, 475, 476, 477]), (468, [469, 470, 471, 472])
+
+
+def _sstep(a, b, x):
+    t = np.clip((x - a) / (b - a), 0, 1)
+    return t * t * (3 - 2 * t)
+
+
+def calibrated_eyes(tex, have, fv, Pv, ys, xs, mirror):
+    """Olhos desenhados DENTRO da abertura real do olho na foto frontal (contorno e íris do MediaPipe): esclera e íris
+    limpas, com a cor da pessoa e o tamanho e a posição da íris da foto; fora da abertura fica a pele da pálpebra, também
+    da foto. Assim o olhar fica entreaberto como o da pessoa, sem o olho arregalado dos olhos procedurais e sem a sombra
+    de pálpebra pintada sobre o globo dos olhos amostrados direto da foto."""
+    lm, img = fv.get("lm"), fv["img"]
+    if lm is None or len(lm) < 478:
+        return tex, have
+    h, w = img.shape[:2]
+    lum = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    eye_px = (ys >= HEAD_V * TEX) & (xs < 0.5 * TEX)
+    for side, ring_idx, (ci, iris_idx) in (
+        (xs < 0.24 * TEX, LEFT_EYE_RING, LEFT_IRIS),
+        (xs >= 0.24 * TEX, RIGHT_EYE_RING, RIGHT_IRIS),
+    ):
+        sel = eye_px & side
+        if not sel.any():
+            continue
+        ring = lm[ring_idx].astype(np.float32)
+        mid = ring.mean(axis=0)
+        ring = mid + (ring - mid) * np.array(
+            [0.97, 0.85], np.float32
+        )  # as pálpebras cobrem um pouco mais que o contorno
+        c = lm[ci].astype(np.float32)
+        r = float(np.mean(np.linalg.norm(lm[iris_idx] - c, axis=1)))
+        opening = np.zeros((h, w), np.uint8)
+        cv2.fillPoly(opening, [ring.astype(np.int32)], 255)
+        sd = cv2.distanceTransform(opening, cv2.DIST_L2, 3) - cv2.distanceTransform(255 - opening, cv2.DIST_L2, 3)
+        yy, xx = np.mgrid[0:h, 0:w]
+        dist = np.hypot(xx - c[0], yy - c[1])
+        # cores da pessoa: íris = miolo do disco sem a pupila escura nem o reflexo; esclera = parte clara da abertura
+        disc = (dist < 0.65 * r) & (dist > 0.3 * r) & (lum > 30) & (lum < 175)
+        iris = np.median(img[disc], axis=0) if disc.sum() > 20 else np.array([45.0, 70.0, 100.0])
+        bright = (sd > 1) & (dist > 1.15 * r)
+        if bright.sum() > 15:
+            cut = np.percentile(lum[bright], 60)
+            sclera = np.median(img[bright & (lum >= cut)], axis=0)
+            sclera = (
+                np.maximum(sclera, 120.0) * 0.92
+            )  # a esclera na foto fica na sombra das pálpebras: não é branca pura
+        else:
+            sclera = np.array([224.0, 229.0, 235.0])
+        pp = fp.project(Pv[sel] @ fv["R"].T, fv["s"], fv["t"], mirror) * fv["H"]
+        ix = np.clip(pp[:, 0], 0, w - 1.001).astype(np.float32)
+        iy = np.clip(pp[:, 1], 0, h - 1.001).astype(np.float32)
+        photo = sample(img, ix, iy).astype(np.float32)
+        sdv = sample(sd.astype(np.float32), ix, iy).astype(np.float32).reshape(-1)
+        d = np.hypot(pp[:, 0] - c[0], pp[:, 1] - c[1]) / max(r, 1e-6)
+        phi = np.arctan2(pp[:, 1] - c[1], pp[:, 0] - c[0])
+        fiber = 0.5 + 0.5 * np.sin(52 * phi + 3.0 * np.sin(11 * phi + 5 * d))
+        iris_col = 0.68 * iris[None, :] * (0.62 + 0.7 * fiber * (1 - 0.3 * d))[:, None]
+        iris_col *= (1 + 0.18 * np.exp(-(((d - 0.46) / 0.1) ** 2)))[:, None]  # colarete
+        iris_col *= (1 - 0.55 * _sstep(0.78, 0.97, d))[:, None]  # anel límbico escuro
+        iris_col *= _sstep(0.32, 0.46, d)[:, None]  # pupila
+        scl = sclera[None, :] * (1 - 0.22 * _sstep(1.1, 2.6, d))[:, None]
+        proc = iris_col * (1 - _sstep(0.97, 1.06, d))[:, None] + scl * _sstep(0.97, 1.06, d)[:, None]
+        proc *= (0.5 + 0.5 * _sstep(0.0, 0.4 * r, sdv))[:, None]  # sombra da pálpebra superior e inferior
+        glint = np.exp(-((np.hypot(pp[:, 0] - (c[0] - 0.32 * r), pp[:, 1] - (c[1] - 0.34 * r)) / (0.13 * r)) ** 2))
+        proc = proc * (1 - 0.85 * glint)[:, None] + np.array([238.0, 238.0, 242.0])[None, :] * (0.85 * glint)[:, None]
+        alpha = _sstep(-1.5, 1.5, sdv)[:, None]
+        out = alpha * proc + (1 - alpha) * photo
+        tex[ys[sel], xs[sel]] = np.clip(out, 0, 255).astype(np.uint8)
+        have[ys[sel], xs[sel]] = 255
+    return tex, have
+
+
 def views_from_fit(fit_views):
     """Vistas do ajuste (fit.View) -> dicionários usados pela textura."""
     return [
         dict(
             name=v.name,
             img=v.img,
+            lm=v.landmarks,
             rot=np.asarray(v.rot, float),
             R=fp.rotmat(v.rot),
             s=float(v.s),
@@ -660,6 +745,9 @@ def bake(V, views, F, masks, mirror, out_dir=None):
         tex = np.clip(tex.astype(np.float32) * (1 - soft) + smooth_side * soft, 0, 255).astype(np.uint8)
         log(f"  pele lateral suavizada em {int(zone.sum() / max(valid.sum(), 1) * 100)}% do mapa")
 
+    if OPTS["calibrated_eyes"]:
+        tex, have = calibrated_eyes(tex, have, fv, Pv, ys, xs, mirror)
+
     # ---- olhos procedurais (esclera, íris, anel límbico, pupila); a cor da íris vem da foto frontal
     eye_px = (ys >= HEAD_V * TEX) & (xs < 0.5 * TEX)
     for name, key, side in (
@@ -692,17 +780,17 @@ def bake(V, views, F, masks, mirror, out_dir=None):
     for key in ("left_ear", "right_ear"):
         eidx = np.asarray(masks[key], int)
         ec = V[eidx].mean(0)
-        dist = np.linalg.norm(Pv - ec, axis=1)
-        near = dist < 0.040
-        # a orelha foi ampliada: qualquer pixel vazio (preto) do crânio perto dela também precisa de cor
-        black = (tex[ys, xs].sum(axis=1) == 0) & (dist < 0.085)
+        # elipse (lado a lado e altura) do tamanho da orelha, não uma esfera: uma esfera de 4 cm deixava um halo escuro e
+        # borrado em volta da orelha. A orelha 3D (já alinhada e ampliada à real) cobre o resto.
+        ext = np.ptp(V[eidx], axis=0)
+        a_z, a_y = 0.58 * ext[2] + 0.004, 0.58 * ext[1] + 0.004
+        ell = ((Pv[:, 2] - ec[2]) / a_z) ** 2 + ((Pv[:, 1] - ec[1]) / a_y) ** 2
+        near = ell < 1.0
+        black = (tex[ys, xs].sum(axis=1) == 0) & (ell < 2.2)  # vazios do mapa logo em volta também precisam de cor
         near = (near | black) & (ys < HEAD_V * TEX)
         ear_zone[ys[near], xs[near]] = True
     if ear_zone.any():
-        ez = cv2.dilate(ear_zone.astype(np.uint8), np.ones((9, 9), np.uint8))
-        # os vazios do mapa sob a orelha são pretos: entram na máscara para o preenchimento não puxar preto
-        around = cv2.dilate(ear_zone.astype(np.uint8), np.ones((81, 81), np.uint8)) > 0
-        ez = ((ez > 0) | (around & (tex.sum(axis=2) == 0))).astype(np.uint8)
+        ez = cv2.dilate(ear_zone.astype(np.uint8), np.ones((7, 7), np.uint8))
         small_t = cv2.resize(tex, (1024, 1024), interpolation=cv2.INTER_AREA)
         small_m = cv2.resize(ez * 255, (1024, 1024), interpolation=cv2.INTER_NEAREST)
         fixed = cv2.resize(
@@ -723,13 +811,31 @@ def bake(V, views, F, masks, mirror, out_dir=None):
     # cobre o miolo de pele: só considera escuro o que está encostado na borda da ilha (até 40 px dela)
     edge = cv2.erode(vmask.astype(np.uint8), np.ones((81, 81), np.uint8)) == 0
     dark = dark & edge.astype(np.uint8)
+    # faixa de cabelo mais larga (até ~60 px da borda da ilha): o que NÃO tem cor de pele é cabelo; a concha da orelha,
+    # mesmo na sombra, tem cor de pele e não é tocada.
+    wide = vmask & (cv2.erode(vmask.astype(np.uint8), np.ones((121, 121), np.uint8)) == 0)
+    not_skin = ~((ycs[..., 1] >= 134) & (ycs[..., 1] <= 178) & (ycs[..., 2] >= 78) & (ycs[..., 2] <= 126))
+    dark = dark | (wide & not_skin).astype(np.uint8)
+    dark = cv2.dilate(dark, np.ones((5, 5), np.uint8))
+    dark[~vmask] = 0
     if dark.any():
-        ref = strip.copy()
-        ref[dark > 0] = 0
-        fixed = cv2.inpaint(strip, dark * 255, 7, cv2.INPAINT_TELEA)
+        # as cores de origem do preenchimento não podem incluir a margem de fora da ilha (também é cabelo): ela entra
+        # na máscara e só a pele de dentro serve de fonte.
+        src_mask = ((dark > 0) | ~vmask).astype(np.uint8) * 255
+        fixed = cv2.inpaint(strip, src_mask, 7, cv2.INPAINT_TELEA)
         strip[dark > 0] = fixed[dark > 0]
         tex[r0:, c0:] = strip
         log(f"  borda escura da orelha corrigida: {int(dark.sum())} px")
+    # a margem de textura em volta das orelhas (fora do mapa válido) foi preenchida ANTES da correção do anel escuro e
+    # ficou com o cabelo: refaz a partir da pele já corrigida. É a margem que aparece como contorno escuro na borda.
+    sub_v = valid[r0:, c0:]
+    margin = (cv2.dilate(sub_v.astype(np.uint8), np.ones((5, 5), np.uint8), iterations=6) > 0) & ~sub_v
+    if margin.any():
+        strip2 = tex[r0:, c0:].copy()
+        strip2[margin] = 0
+        redo = cv2.inpaint(strip2, (margin * 255).astype(np.uint8), 5, cv2.INPAINT_TELEA)
+        strip2[margin] = redo[margin]
+        tex[r0:, c0:] = strip2
     return dict(
         tex=tex,
         Vx=Vx,

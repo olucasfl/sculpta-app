@@ -168,7 +168,7 @@ function FaceModel({
   const ring = useRef<THREE.Mesh>(null);
   const lastStamp = useRef<THREE.Vector3 | null>(null);
 
-  const { mesh, eyes, regionAttrs, runtime, textured, strandsColor, eyeLevel } = useMemo(() => {
+  const { mesh, eyes, regionAttrs, runtime, textured, strandsColor, eyeLevel, hairCoverage } = useMemo(() => {
     let source: THREE.Mesh | null = null;
     gltf.scene.traverse((o) => {
       if (!source && (o as THREE.Mesh).isMesh) source = o as THREE.Mesh;
@@ -219,7 +219,13 @@ function FaceModel({
       sliders: Object.keys(m.morphTargetDictionary),
       textured: !!photoMap,
     });
-    const hasHair = !!geometry.getAttribute('_hair');
+    const hairAttr = geometry.getAttribute('_hair') as THREE.BufferAttribute | undefined;
+    const hasHair = !!hairAttr;
+    let coverage: Float32Array | null = null;
+    if (hairAttr) {
+      coverage = new Float32Array(hairAttr.count);
+      for (let i = 0; i < coverage.length; i++) coverage[i] = hairAttr.getX(i); // getX devolve o valor já normalizado
+    }
     return {
       mesh: m,
       eyes: extras.eyes ?? null,
@@ -228,6 +234,7 @@ function FaceModel({
       textured: !!photoMap,
       strandsColor: hasHair ? (extras.hairColor ?? '#2a2018') : null,
       eyeLevel: { eyeY: extras.eyeY, faceZ: extras.faceZ },
+      hairCoverage: coverage,
     };
     // onLoaded é estável o bastante; recriar a malha a cada render seria caro
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -533,7 +540,14 @@ function FaceModel({
       </mesh>
       {eyes && <Eyes eyes={eyes} irisHex={irisColor(look)} />}
       {eyes && <BrowsAndLashes head={mesh} eyes={eyes} browHex={look.browHex} />}
-      {textured && strandsColor && look.hairVisible && (
+      {textured && strandsColor && look.hairVisible && hairCoverage && (
+        <Hair
+          head={mesh}
+          params={{ volume: look.hairVolume, length: look.hairLength, hairline: look.hairline, eyeY: eyeLevel.eyeY, coverage: hairCoverage }}
+          hex={strandsColor}
+        />
+      )}
+      {textured && strandsColor && look.hairVisible && look.hairStrands && (
         <HairStrands head={mesh} color={strandsColor} density={40 + look.hairVolume * 100} length={0.03 + look.hairLength * 0.12} eyeY={eyeLevel.eyeY} faceZ={eyeLevel.faceZ} />
       )}
       {look.hairVisible && !textured && (

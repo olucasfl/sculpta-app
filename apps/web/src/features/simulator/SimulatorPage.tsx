@@ -389,18 +389,29 @@ export function SimulatorPage() {
                 onChange={(e) => setAppearance({ ...appearance, hairVisible: e.target.checked })}
                 className="size-5 accent-[var(--color-primary-600)]"
               />
-              Cabelo em fios (visual, experimental)
+              Cabelo (volume simples, com a cor e a linha do cabelo da foto)
             </label>
             {appearance.hairVisible && (
               <>
                 <label className="flex flex-col gap-1 text-sm font-medium">
-                  Comprimento
-                  <input type="range" min={0} max={1} step={0.01} value={appearance.hairLength} onChange={(e) => setAppearance({ ...appearance, hairLength: Number(e.target.value) })} className="h-2 w-full cursor-pointer accent-[var(--color-primary-600)]" />
-                </label>
-                <label className="flex flex-col gap-1 text-sm font-medium">
-                  Densidade
+                  Volume
                   <input type="range" min={0} max={1} step={0.01} value={appearance.hairVolume} onChange={(e) => setAppearance({ ...appearance, hairVolume: Number(e.target.value) })} className="h-2 w-full cursor-pointer accent-[var(--color-primary-600)]" />
                 </label>
+                <label className="flex min-h-11 items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={appearance.hairStrands}
+                    onChange={(e) => setAppearance({ ...appearance, hairStrands: e.target.checked })}
+                    className="size-5 accent-[var(--color-primary-600)]"
+                  />
+                  Fios finos por cima (experimental)
+                </label>
+                {appearance.hairStrands && (
+                  <label className="flex flex-col gap-1 text-sm font-medium">
+                    Comprimento dos fios
+                    <input type="range" min={0} max={1} step={0.01} value={appearance.hairLength} onChange={(e) => setAppearance({ ...appearance, hairLength: Number(e.target.value) })} className="h-2 w-full cursor-pointer accent-[var(--color-primary-600)]" />
+                  </label>
+                )}
               </>
             )}
           </div>
