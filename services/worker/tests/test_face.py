@@ -131,3 +131,38 @@ def test_silhueta_aproxima_a_forma_de_um_rosto_conhecido(monkeypatch):
     assert info["used"] == 2
     print(f"erro da forma (mm): pontos {base_err * 1000:.2f} -> com silhueta {new_err * 1000:.2f}")
     assert new_err < base_err, f"a silhueta não melhorou a forma: {base_err * 1000:.2f} -> {new_err * 1000:.2f} mm"
+
+
+def test_cobertura_de_cabelo_so_no_escuro_sem_cor_de_pele_acima_dos_olhos():
+    import cv2
+
+    from app.face import hair
+
+    size = 256
+    tex = np.zeros((size, size, 3), np.uint8)
+    tex[:] = (110, 150, 200)  # BGR de pele
+    tex[:100] = (20, 20, 24)  # faixa de cima: cabelo escuro
+    ycc = cv2.cvtColor(tex, cv2.COLOR_BGR2YCrCb)
+    assert ycc[200, 100, 1] >= 134  # a "pele" do teste realmente cai na faixa de pele
+
+    m = hair.hair_mask(tex)
+    assert m[40, 128] > 0.9 and m[200, 128] < 0.05
+
+    # 6 vértices: cabelo alto, testa/sobrancelha escura baixa, nuca abaixo dos olhos, orelha, olho, pescoço
+    n = 6
+    uv = np.array([[0.5, 40 / size]] * n)  # todos "caem" na faixa escura da textura
+    pos = np.zeros((n, 3))
+    pos[:, 2] = np.array([0.08, 0.08, -0.08, 0.0, 0.0, 0.0])
+    pos[:, 1] = np.array([0.10, 0.03, -0.02, 0.10, 0.10, 0.10])  # y_eye = 0.0
+    masks = {
+        "left_ear": [3],
+        "right_ear": [3],
+        "left_eyeball": [4],
+        "right_eyeball": [4],
+        "neck": [5],
+    }
+    w, color = hair.hair_weights(tex, uv, pos, masks, head_rows=0.85, y_eye=0.0)
+    assert w[0] == 1.0  # topo da cabeça, à frente: cabelo
+    assert w[1] == 0.0  # testa/sobrancelha (abaixo de y_eye + 5 cm, à frente) não vira fio
+    assert w[3] == w[4] == w[5] == 0.0  # orelha, olho e pescoço ficam de fora
+    assert color.startswith("#") and len(color) == 7

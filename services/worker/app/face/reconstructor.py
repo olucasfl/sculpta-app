@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 from .. import pipeline
-from . import bases, fit, glb, silhouette, texture
+from . import bases, fit, glb, hair, silhouette, texture
 
 # O ajuste só mede a consistência dos pontos nas fotos, não a semelhança com o rosto real.
 # Sem validação contra um escaneamento, a confiança nunca passa de "média".
@@ -87,7 +87,16 @@ class FlameReconstructor:
         score = quality_score(errors, len(views), r["coverage"], sil)
         b = bases.build_bases(r["V"], self.fl["faces"], self.masks)
         src = r["src"]
-        positions = r["Vx"] + head_offset(r["V"], self.masks)
+        n0 = r["n_original"]
+        eye_ids = np.concatenate([np.asarray(self.masks[k], int) for k in ("left_eyeball", "right_eyeball")])
+        off = head_offset(r["V"], self.masks)
+        hair_w, hair_hex = hair.hair_weights(
+            r["tex"], r["Ux"][:n0], r["V"], self.masks, texture.HEAD_V, float(r["V"][eye_ids][:, 1].mean())
+        )
+        # nível dos olhos e plano da frente do rosto, já no espaço do simulador (o modelo é transladado por `off`)
+        eye_y = float(r["V"][eye_ids][:, 1].mean() + off[1])
+        face_z = float(r["V"][eye_ids][:, 2].mean() + off[2])
+        positions = r["Vx"] + off
         ok, jpg = cv2.imencode(".jpg", r["tex"], [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
         if not ok:
             raise pipeline.InputError("LOW_QUALITY", "Falha ao codificar a textura")
@@ -98,12 +107,18 @@ class FlameReconstructor:
             indices=r["Fx"],
             texture=jpg.tobytes(),
             targets=[dict(id=t["id"], positions=t["positions"][src], normals=t["normals"][src]) for t in b["targets"]],
-            scalars={f"_REGION_{name.upper()}": b["weights"][src, k] for k, name in enumerate(bases.REGION_ORDER)},
+            scalars={
+                **{f"_REGION_{name.upper()}": b["weights"][src, k] for k, name in enumerate(bases.REGION_ORDER)},
+                "_HAIR": hair_w[src],  # cobertura de cabelo por vértice (o simulador cresce fios onde > 0)
+            },
             extras=dict(
                 kind="RECONSTRUCTION",
                 sliderSchemaVersion=bases.SLIDER_SCHEMA_VERSION,
                 regions=[f"{k}:{bases.REGION_LABEL[k]}" for k in bases.REGION_ORDER],
                 textured=True,
+                hairColor=hair_hex,
+                eyeY=eye_y,
+                faceZ=face_z,
                 notice="Modelo ajustado às fotos (FLAME). É uma estimativa visual, não uma medida do rosto.",
             ),
         )

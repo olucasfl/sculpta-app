@@ -69,3 +69,14 @@ Já funciona de ponta a ponta no seu computador (captura → API → worker → 
 **O que o simulador faz com esse modelo:** usa a textura das fotos (a pele, os olhos e o cabelo do painel "Aparência" valem só para o modelo demonstrativo), mostra o selo "Reconstrução aproximada" com a qualidade e a confiança (no máximo **média**: o `qualityScore` mede só a coerência dos pontos entre as fotos, e não há validação contra um escaneamento), e aplica os 15 sliders e o pincel na malha nova.
 
 **Limites conhecidos:** testado só em uma pessoa; cabelo, pescoço e nuca são aproximações; a orelha depende de uma segmentação clássica (GrabCut); os sliders reaproveitam as fórmulas do template sobre âncoras do rosto e ainda não foram validados com um profissional.
+
+## 7. Cabelo em fios (E8, parte de software; experimental)
+
+No modelo reconstruído o cabelo já vem pintado na textura das fotos. Por cima dele, o simulador pode desenhar **fios** (opção "Cabelo em fios", com comprimento e densidade):
+
+- O worker mede, na própria textura, onde há cabelo (pixel escuro sem cor de pele) e grava a cobertura por vértice (`_HAIR`) e a cor média do cabelo (`hairColor`), além da altura dos olhos e do plano da frente do rosto (`eyeY`, `faceZ`). Sobrancelhas e a testa baixa ficam de fora (também são escuras); nas têmporas o cabelo desce até a altura dos olhos.
+- O simulador faz crescer os fios só ali: cada fio sai da superfície, sobe um pouco e cai com a gravidade, em fluxo radial a partir da coroa; os da frente terminam acima da sobrancelha e os das laterais e da nuca são mais curtos.
+- **É visual**: linhas de 1 px (sem espessura, sem iluminação própria, sem física, sem penteado ou corte reais). O primeiro resultado cobria os olhos e a testa (sobrancelhas contadas como cabelo; franja comprida); isso foi corrigido e verificado no navegador, em uma pessoa.
+- Cabelo claro ou grisalho (pouco contraste com a pele) e barba acima da altura dos olhos podem enganar a medição por cor.
+
+**Não feito: app iOS com TrueDepth.** Não há Mac nesta máquina (não compila iOS) e o código não poderia ser testado; fica para quando houver um Mac ou serviço de build.

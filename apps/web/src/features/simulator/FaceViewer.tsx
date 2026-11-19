@@ -5,6 +5,7 @@ import { forwardRef, Suspense, type ComponentRef, useEffect, useImperativeHandle
 import * as THREE from 'three';
 import { DEFAULT_APPEARANCE, irisColor, skinColor, type Appearance } from './appearance';
 import { BrowsAndLashes, Eyes, Hair } from './FaceExtras';
+import { HairStrands } from './HairStrandsView';
 import type { BrushParams } from './sculpt';
 import { createSculptRuntime, type SculptRuntime, type SculptState } from './sculptRuntime';
 import { applySkinShader } from './skinShader';
@@ -167,7 +168,7 @@ function FaceModel({
   const ring = useRef<THREE.Mesh>(null);
   const lastStamp = useRef<THREE.Vector3 | null>(null);
 
-  const { mesh, eyes, regionAttrs, runtime, textured } = useMemo(() => {
+  const { mesh, eyes, regionAttrs, runtime, textured, strandsColor, eyeLevel } = useMemo(() => {
     let source: THREE.Mesh | null = null;
     gltf.scene.traverse((o) => {
       if (!source && (o as THREE.Mesh).isMesh) source = o as THREE.Mesh;
@@ -198,7 +199,14 @@ function FaceModel({
     m.morphTargetInfluences = new Array(Object.keys(m.morphTargetDictionary).length).fill(0);
     m.updateMorphTargets();
     m.userData.textured = !!photoMap;
-    const extras = (src.userData ?? {}) as { kind?: ModelInfo['kind']; notice?: string; eyes?: { centers: [number, number, number][]; radius: number } };
+    const extras = (src.userData ?? {}) as {
+      kind?: ModelInfo['kind'];
+      notice?: string;
+      eyes?: { centers: [number, number, number][]; radius: number };
+      hairColor?: string;
+      eyeY?: number;
+      faceZ?: number;
+    };
     const attrs = new Map<FaceRegion, THREE.BufferAttribute>();
     for (const r of REGIONS) {
       const a = geometry.getAttribute(`_region_${r}`) as THREE.BufferAttribute | undefined;
@@ -211,7 +219,16 @@ function FaceModel({
       sliders: Object.keys(m.morphTargetDictionary),
       textured: !!photoMap,
     });
-    return { mesh: m, eyes: extras.eyes ?? null, regionAttrs: attrs, runtime, textured: !!photoMap };
+    const hasHair = !!geometry.getAttribute('_hair');
+    return {
+      mesh: m,
+      eyes: extras.eyes ?? null,
+      regionAttrs: attrs,
+      runtime,
+      textured: !!photoMap,
+      strandsColor: hasHair ? (extras.hairColor ?? '#2a2018') : null,
+      eyeLevel: { eyeY: extras.eyeY, faceZ: extras.faceZ },
+    };
     // onLoaded é estável o bastante; recriar a malha a cada render seria caro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gltf]);
@@ -516,6 +533,9 @@ function FaceModel({
       </mesh>
       {eyes && <Eyes eyes={eyes} irisHex={irisColor(look)} />}
       {eyes && <BrowsAndLashes head={mesh} eyes={eyes} browHex={look.browHex} />}
+      {textured && strandsColor && look.hairVisible && (
+        <HairStrands head={mesh} color={strandsColor} density={40 + look.hairVolume * 100} length={0.03 + look.hairLength * 0.12} eyeY={eyeLevel.eyeY} faceZ={eyeLevel.faceZ} />
+      )}
       {look.hairVisible && !textured && (
         <Hair head={mesh} params={{ volume: look.hairVolume, length: look.hairLength, hairline: look.hairline, eyeY: eyes?.centers[0]?.[1] }} hex={look.hairHex} />
       )}
