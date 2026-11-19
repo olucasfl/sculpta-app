@@ -94,20 +94,72 @@ def silhouette_error(view, fl, beta, mirror, masks, mask):
     return None if out is None else out[2]
 
 
-def refine(views, fl, masks, beta, mirror, log=lambda *_: None, rounds=3):
-    """Refina `beta` com a silhueta das vistas de perfil. Devolve (V, beta, info). Sem perfil utilizável, devolve igual."""
-    profiles = [v for v in views if abs(v.rot[0]) >= PROFILE_MIN_YAW]
-    if not profiles:
-        return fl["v0"] + np.einsum("vdk,k->vd", fl["sd"], beta), beta, {"used": 0}
-    cache = {}
+SIGMA_OVAL = 0.012  # confiança do contorno da mandíbula (fração da altura do rosto)
+FRONTAL_MAX_YAW = 30.0  # só vistas de frente: de lado, metade do contorno fica escondida
+
+
+def oval_constraints(view, fl, beta, mirror, masks):
+    """Contorno da mandíbula e das bochechas (pontos do MediaPipe) como restrição de forma.
+
+    Os 105 pontos do ajuste quase não pegam o contorno do rosto, e o modelo saía mais largo e quadrado. Para cada ponto
+    do contorno na foto, o vértice do rosto que mais avança naquela direção (a partir do centro do rosto) deve cair
+    sobre ele, medido na direção radial (o vértice pode deslizar ao longo do contorno).
+    Devolve (A, b, erro médio com sinal em fração da altura do rosto; + = modelo mais largo) ou None."""
+    if view.oval is None or abs(view.rot[0]) > FRONTAL_MAX_YAW:
+        return None
+    face = np.asarray(masks["face"], int)
+    V = fl["v0"] + np.einsum("vdk,k->vd", fl["sd"], beta)
+    R = fit.rotmat(view.rot)
+    pix = fit.project(V @ R.T, view.s, view.t, mirror)  # unidade de altura do rosto
+    centre = pix[face].mean(0)
+    SD, V0 = fl["sd"], fl["v0"]
+    rows, rhs, errs = [], [], []
+    for q in view.oval:
+        u = q - centre
+        norm = np.linalg.norm(u)
+        if norm < 1e-6:
+            continue
+        u = u / norm
+        i = face[np.argmax((pix[face] - centre) @ u)]  # vértice que mais avança naquela direção
+        errs.append(float((pix[i] - q) @ u))
+        ax = mirror * view.s * (R[0] @ SD[i])
+        ay = -view.s * (R[1] @ SD[i])
+        cx = mirror * view.s * (R[0] @ V0[i]) + view.t[0]
+        cy = -view.s * (R[1] @ V0[i]) + view.t[1]
+        rows.append((u[0] * ax + u[1] * ay) / SIGMA_OVAL)
+        rhs.append((u @ q - (u[0] * cx + u[1] * cy)) / SIGMA_OVAL)
+    if len(rows) < 8:
+        return None
+    return np.array(rows), np.array(rhs), float(np.mean(errs))
+
+
+def refine(views, fl, masks, beta, mirror, log=lambda *_: None, rounds=3, profile=True, oval=True):
+    """Refina `beta` com restrições de contorno: a silhueta das vistas de perfil e o contorno da mandíbula nas
+    vistas de frente. Devolve (V, beta, info); sem nenhuma restrição aplicável, devolve a forma como estava."""
+    profiles = [v for v in views if profile and abs(v.rot[0]) >= PROFILE_MIN_YAW]
+    fronts = [v for v in views if oval and v.oval is not None and abs(v.rot[0]) <= FRONTAL_MAX_YAW]
     V_now = fl["v0"] + np.einsum("vdk,k->vd", fl["sd"], beta)
-    for v in profiles:  # a máscara de pele não muda; as correspondências sim, a cada rodada
-        cache[v.name] = skin_mask(v, fl, V_now, mirror, masks)
-    before = {v.name: silhouette_error(v, fl, beta, mirror, masks, cache[v.name]) for v in profiles}
+    if not profiles and not fronts:
+        return V_now, beta, {"used": 0}
+    cache = {v.name: skin_mask(v, fl, V_now, mirror, masks) for v in profiles}  # a máscara não muda; as pontes sim
+
+    def errors(b):
+        sil = {v.name: silhouette_error(v, fl, b, mirror, masks, cache[v.name]) for v in profiles}
+        ov = {}
+        for v in fronts:
+            c = oval_constraints(v, fl, b, mirror, masks)
+            ov[v.name] = None if c is None else c[2]
+        return sil, ov
+
+    before_sil, before_oval = errors(beta)
     for _ in range(rounds):
         extra = []
         for v in profiles:
             c = constraints_for_view(v, fl, beta, mirror, masks, cache[v.name])
+            if c is not None:
+                extra.append((c[0], c[1]))
+        for v in fronts:
+            c = oval_constraints(v, fl, beta, mirror, masks)
             if c is not None:
                 extra.append((c[0], c[1]))
         if not extra:
@@ -116,7 +168,17 @@ def refine(views, fl, masks, beta, mirror, log=lambda *_: None, rounds=3):
         for v in views:  # a pose de cada vista acompanha a nova forma
             x, e = fit.fit_view(v, fl, beta, mirror)
             v.rot, v.s, v.t, v.err = x[:3], float(np.exp(x[3])), x[4:6], e
-    after = {v.name: silhouette_error(v, fl, beta, mirror, masks, cache[v.name]) for v in profiles}
-    log(f"silhueta (erro médio, fração da altura do rosto): antes {before} depois {after}")
+    after_sil, after_oval = errors(beta)
+    log(f"silhueta: {before_sil} -> {after_sil}; contorno da mandíbula: {before_oval} -> {after_oval}")
     V = fl["v0"] + np.einsum("vdk,k->vd", fl["sd"], beta)
-    return V, beta, {"used": len(profiles), "before": before, "after": after}
+    return (
+        V,
+        beta,
+        {
+            "used": len(profiles) + len(fronts),
+            "before": before_sil,
+            "after": after_sil,
+            "oval_before": before_oval,
+            "oval_after": after_oval,
+        },
+    )

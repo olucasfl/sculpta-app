@@ -27,7 +27,7 @@ _verbose = True
 # Etapas de acabamento que podem ser desligadas (ablação: medir quais ajudam a semelhança com a pessoa).
 # Padrão: rosto fiel à foto (olhos amostrados da foto, pele com o relevo e as sombras originais); os olhos procedurais
 # ficavam arregalados e a limpeza de pele (mesmo leve) suavizava barba e contraste (comparado com a foto frontal).
-OPTS = {"clean_skin": False, "procedural_eyes": False, "neck": True, "legacy_face": True}
+OPTS = {"clean_skin": False, "procedural_eyes": False, "neck": True, "legacy_face": False}
 
 
 def log(*args):
@@ -692,6 +692,9 @@ def bake(V, views, F, masks, mirror, out_dir=None):
     # cobre o miolo de pele: só considera escuro o que está encostado na borda da ilha (até 40 px dela)
     edge = cv2.erode(vmask.astype(np.uint8), np.ones((81, 81), np.uint8)) == 0
     dark = dark & edge.astype(np.uint8)
+    # anel externo fino (24 px): é o cabelo atrás da orelha; só o que for escuro é refeito a partir da pele de dentro
+    ring = vmask & (cv2.erode(vmask.astype(np.uint8), np.ones((49, 49), np.uint8)) == 0)
+    dark = dark | (ring & (ycs[..., 0] < 125)).astype(np.uint8)
     if dark.any():
         ref = strip.copy()
         ref[dark > 0] = 0

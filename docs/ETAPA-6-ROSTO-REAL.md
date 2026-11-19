@@ -93,3 +93,13 @@ A primeira versão com textura das fotos ficou muito parecida com a pessoa; as v
 **Como está agora:** dentro do rosto (testa, olhos, nariz, lábios, bochechas) a textura usa a mistura da primeira versão (as 2 melhores fotos por ponto, peso `nz^6`, ganho de brilho global por vista, sem recorte), com os pesos suavizados no mapa para a cor passar de uma foto à outra sem degrau (o detalhe de cada foto não é borrado). Fora do rosto seguem as melhorias novas: pescoço em degradê, cabelo com a cor real, orelhas segmentadas e fundo sem vazamento. Tempo: ~38 s em CPU; `qualityScore` 0,72.
 
 **Como foi verificado:** só olhando a foto frontal ao lado do render (uma pessoa). Não há medida numérica de semelhança, e a primeira versão não foi guardada em arquivo para comparar pixel a pixel.
+
+## 9. Formato do rosto e cores uniformes (develop)
+
+Dois problemas apontados ao comparar com a foto:
+
+- **Formato:** o ajuste por 105 pontos quase não pega o contorno do rosto. Medido na foto frontal contra o contorno da mandíbula e das bochechas do MediaPipe, o modelo estava **~17 px mais largo** (rosto de 223 px de altura): bochechas +23 px, mandíbula +15 px. Agora o contorno entra como restrição linear (`oval_constraints` em `silhouette.py`): o vértice do rosto que mais avança em cada direção deve cair sobre o ponto do contorno, medido na direção radial. Resíduo de ~17 px para ~−2 px, sem piorar os pontos (frontal 1,0% → 0,95% da altura do rosto). Só valem vistas de frente (giro até 30°). Os pontos da base do queixo ficaram de fora: com eles o queixo saía alongado e pontudo. A silhueta de perfil continua desligada (`REFINE_SILHOUETTE = False`); o contorno está ligado (`REFINE_OVAL = True`).
+- **Cores com manchas:** a mistura da primeira versão (as 2 melhores fotos com ganho de brilho global) deixava faixas de tom nas bochechas e na testa onde uma foto assume no lugar da outra. Dentro do rosto voltou a mistura em duas bandas (cor de baixa frequência de todas as fotos, detalhe das duas melhores), mantendo os olhos da foto e sem limpeza de pele. `OPTS["legacy_face"] = False`; a mistura antiga segue disponível.
+- **Orelhas:** o anel externo de 24 px (cabelo atrás da orelha, que vinha escuro) é refeito a partir da pele de dentro; o relevo interno não é tocado (a primeira tentativa, mais agressiva, borrava a concha e foi descartada).
+
+**Verificação:** só pela comparação visual da foto frontal com o render, e pelos números acima, em uma pessoa; o teste automático garante o mecanismo (o contorno é respeitado e a forma não piora), não a exatidão. Reconstrução em ~54 s em CPU.
