@@ -5,3 +5,6 @@ __pycache__/
 .ruff_cache/
 assets/template-head.glb
 .dev-secret
+assets/face_landmarker.task
+assets/flame/
+.out/

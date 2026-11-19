@@ -12,3 +12,6 @@ apps/api/src/generated/
 apps/web/e2e/screenshots/
 apps/web/playwright-report/
 apps/web/test-results/
+
+# Modelos FLAME: licenca propria (CC-BY-4.0 + creditos), nao redistribuir no repositorio
+services/worker/assets/flame/
