@@ -29,6 +29,18 @@ def quality_score(errors: dict[str, tuple[float, float]], views: int, coverage: 
     return round(min(QUALITY_CAP, geo * views_f * cover_f), 3)
 
 
+# Centro da cabeça no espaço do simulador (câmera orbita em torno de (0, -0,02, 0,02); a cabeça fica em y=0).
+HEAD_CENTER = np.array([0.0, 0.0, 0.02])
+
+
+def head_offset(V, masks) -> np.ndarray:
+    """Translação que leva o centro da caixa da cabeça (sem o pescoço) ao centro usado pelo visualizador."""
+    neck = np.zeros(len(V), bool)
+    neck[np.asarray(masks["neck"], int)] = True
+    head = V[~neck]
+    return HEAD_CENTER - (head.min(axis=0) + head.max(axis=0)) / 2
+
+
 class FlameReconstructor:
     def __init__(self, jpeg_quality: int = 92) -> None:
         texture._verbose = False
@@ -68,11 +80,12 @@ class FlameReconstructor:
         score = quality_score(errors, len(views), r["coverage"])
         b = bases.build_bases(r["V"], self.fl["faces"], self.masks)
         src = r["src"]
+        positions = r["Vx"] + head_offset(r["V"], self.masks)
         ok, jpg = cv2.imencode(".jpg", r["tex"], [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
         if not ok:
             raise pipeline.InputError("LOW_QUALITY", "Falha ao codificar a textura")
         data = glb.write_glb(
-            positions=r["Vx"],
+            positions=positions,
             normals=r["Nx"],
             uvs=r["Ux"],
             indices=r["Fx"],

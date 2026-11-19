@@ -52,3 +52,18 @@
 - É a etapa que decide o produto.
 - Em perfil de 90° o detector do navegador costuma falhar; o modelo pode ficar sem esse lado, o que o worker precisa tolerar (5 a 10 vistas, perfil opcional na prática).
 - O banco do Supabase está na região de Ohio (EUA); fotos e modelos 3D são dados biométricos. **Migrar para São Paulo antes de pacientes reais** (risco R9).
+
+## 6. Como rodar o worker com o rosto reconstruído (FLAME, CPU)
+
+Já funciona de ponta a ponta no seu computador (captura → API → worker → simulador), com uma pessoa. Não foi testado em Docker nem no CI com os modelos.
+
+1. Modelos (licença própria, fora do Git) em `services/worker/assets/flame/x/` (`flame2023_Open.pkl`, `FLAME_masks.pkl`, `mediapipe_landmark_embedding.npz`) e `services/worker/assets/face_landmarker.task`. Outra pasta: variáveis `FLAME_DIR` e `LANDMARKER_MODEL`.
+2. Dependências: `pip install -r requirements-face.txt` (dentro do `.venv` do worker).
+3. Worker: `RECONSTRUCTOR=flame WORKER_SECRET=<32+ caracteres> python -m uvicorn app.main:app_factory --factory --port 8000`.
+4. API: `WORKER_URL=http://127.0.0.1:8000`, o mesmo `WORKER_SECRET`, `QUEUE_ENABLED=true` e `WORKER_TIMEOUT_MS=240000` (a reconstrução leva ~1 min em CPU).
+5. Teste de fumaça com fotos reais (locais): `SMOKE_PHOTOS_DIR=<pasta> SMOKE_WAIT_S=240 node --env-file=.env scripts/smoke-flow.mjs` em `apps/api`.
+6. Só o worker, sem a API: `python scripts/run_pipeline.py <pasta com as fotos> saida.glb`.
+
+**O que o simulador faz com esse modelo:** usa a textura das fotos (a pele, os olhos e o cabelo do painel "Aparência" valem só para o modelo demonstrativo), mostra o selo "Reconstrução aproximada" com a qualidade e a confiança (no máximo **média**: o `qualityScore` mede só a coerência dos pontos entre as fotos, e não há validação contra um escaneamento), e aplica os 15 sliders e o pincel na malha nova.
+
+**Limites conhecidos:** testado só em uma pessoa; cabelo, pescoço e nuca são aproximações; a orelha depende de uma segmentação clássica (GrabCut); os sliders reaproveitam as fórmulas do template sobre âncoras do rosto e ainda não foram validados com um profissional.
