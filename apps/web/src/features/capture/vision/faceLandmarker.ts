@@ -91,6 +91,7 @@ export function analyzeResult(result: FaceLandmarkerResult | null, sharpness: nu
     pitchDeg: matrix ? pitchFromMatrix(matrix.data) : null,
     faceHeightRatio: box.heightRatio,
     centerOffset: Math.hypot(box.centerX - 0.5, box.centerY - 0.5),
+    edgeMargin: box.margin,
     sharpness,
     landmarks: lm.map((p) => ({ x: p.x, y: p.y, z: p.z })),
   };

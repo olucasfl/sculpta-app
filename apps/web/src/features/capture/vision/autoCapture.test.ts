@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluate, pitchFromMatrix, type FrameAnalysis } from './analysis';
+import { evaluate, PITCH_SIGN, pitchFromMatrix, type FrameAnalysis } from './analysis';
 import { initialStability, pickFrames, stepStability, STABLE_MS, type VideoSample } from './autoCapture';
 
 const frame = (over: Partial<FrameAnalysis> = {}): FrameAnalysis => ({
@@ -43,6 +43,29 @@ describe('foto automática', () => {
   });
 });
 
+describe('foto automática: pessoa precisa ficar parada e enquadrada', () => {
+  const pose = (over: Partial<Parameters<typeof stepStability>[4] & object> = {}) => ({ yaw: 20, pitch: 0, size: 0.55, offset: 0.02, ...over });
+
+  it('mexer além do limite reinicia a contagem', () => {
+    let r = stepStability(initialStability(), 0, true, 100, pose());
+    r = stepStability(r.state, 600, true, 100, pose({ yaw: 21 }));
+    expect(r.progress).toBeCloseTo(0.6);
+    // virou 8° durante a espera: recomeça, não dispara em 1 s
+    r = stepStability(r.state, 900, true, 100, pose({ yaw: 29 }));
+    expect(r.progress).toBe(0);
+    r = stepStability(r.state, 1000 + 500, true, 100, pose({ yaw: 29 }));
+    expect(r.fire).toBe(false);
+    r = stepStability(r.state, 900 + STABLE_MS, true, 100, pose({ yaw: 29 }));
+    expect(r.fire).toBe(true);
+  });
+
+  it('rosto encostando na borda ou fora do centro não libera', () => {
+    expect(evaluate('FRONT', frame({ edgeMargin: 0.01 })).ready).toBe(false);
+    expect(evaluate('FRONT', frame({ edgeMargin: 0.1 })).ready).toBe(true);
+    expect(evaluate('FRONT', frame({ centerOffset: 0.14 })).ready).toBe(false);
+  });
+});
+
 describe('inclinação (queixo)', () => {
   it('reconhece queixo para cima/baixo só dentro da faixa e dá dica do sentido', () => {
     expect(evaluate('CHIN_UP', frame({ pitchDeg: 22 })).ready).toBe(true);
@@ -65,7 +88,7 @@ describe('inclinação (queixo)', () => {
     // column-major: R(1,2) = m[9]
     const m = new Array(16).fill(0);
     m[0] = 1; m[5] = Math.cos(a); m[6] = Math.sin(a); m[9] = -Math.sin(a); m[10] = Math.cos(a); m[15] = 1;
-    expect(pitchFromMatrix(m)).toBeCloseTo(25, 3);
+    expect(pitchFromMatrix(m)).toBeCloseTo(25 * PITCH_SIGN, 3);
   });
 });
 

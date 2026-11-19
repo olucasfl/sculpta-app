@@ -8,7 +8,7 @@ import { encodeJpeg } from './imageEncoding';
 import type { PendingPhoto } from './types';
 import { evaluate, type FrameAnalysis } from './vision/analysis';
 import { applyFlip, readFlag, writeFlag } from './captureFlags';
-import { initialStability, stepStability, type StabilityState } from './vision/autoCapture';
+import { initialStability, poseOf, stepStability, type StabilityState } from './vision/autoCapture';
 import { analyzeResult, getLandmarker, measureSharpness } from './vision/faceLandmarker';
 
 type CameraState = 'idle' | 'starting' | 'live' | 'error';
@@ -50,6 +50,7 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
   const [auto, setAuto] = useState(() => readFlag('sculpta.autoCapture', true));
   const [flip, setFlip] = useState(() => readFlag('sculpta.flipSide', false));
   const [progress, setProgress] = useState(0);
+  const [discarded, setDiscarded] = useState<string | null>(null);
   const angleRef = useRef(angle);
   const autoRef = useRef(auto);
   const flipRef = useRef(flip);
@@ -69,6 +70,7 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
   useEffect(() => {
     setSince(Date.now());
     setAnalysis(null);
+    setDiscarded(null);
     stability.current = initialStability();
     setProgress(0);
   }, [angle]);
@@ -104,6 +106,48 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
       .catch(() => setModel('unavailable'));
   }
 
+  // Vigia da câmera: se o fluxo morrer ou congelar (tela preta), reabre sozinho, até 3 vezes seguidas.
+  const startRef = useRef(start);
+  startRef.current = start;
+  const restarts = useRef(0);
+  useEffect(() => {
+    if (state !== 'live') return;
+    let lastTime = -1;
+    let lastChange = Date.now();
+    const check = () => {
+      const v = video.current;
+      const s = stream.current;
+      if (!v || !s || document.visibilityState !== 'visible') {
+        lastChange = Date.now();
+        return;
+      }
+      if (v.currentTime !== lastTime) {
+        lastTime = v.currentTime;
+        lastChange = Date.now();
+        restarts.current = 0;
+      }
+      const track = s.getVideoTracks()[0];
+      const dead = !track || track.readyState === 'ended';
+      if (v.paused && !dead) void v.play().catch(() => {});
+      if (!dead && Date.now() - lastChange <= 3000) return;
+      lastChange = Date.now();
+      if (restarts.current >= 3) {
+        stop();
+        setError('A câmera parou de responder. Toque em "Tentar de novo".');
+        setState('error');
+        return;
+      }
+      restarts.current += 1;
+      void startRef.current();
+    };
+    const timer = setInterval(check, 1000);
+    document.addEventListener('visibilitychange', check);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', check);
+    };
+  }, [state, stop]);
+
   // Laço de detecção: ~10 análises/s, nitidez ~3/s.
   useEffect(() => {
     if (state !== 'live') return;
@@ -120,14 +164,19 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
           sharp = measureSharpness(v, v.videoWidth, v.videoHeight);
           lastSharp = t;
         }
-        const result = landmarker.current ? landmarker.current.detectForVideo(v, t) : null;
+        let result: ReturnType<FL['detectForVideo']> | null = null;
+        try {
+          result = landmarker.current ? landmarker.current.detectForVideo(v, t) : null;
+        } catch {
+          result = null; // um quadro ruim não pode derrubar o laço
+        }
         const raw = analyzeResult(result, sharp);
         const a = { ...raw, ...applyFlip(raw, flipRef.current) };
         latest.current = a;
         setAnalysis(a);
         // Foto automática: pose válida por 1 s e quadro nítido.
         const ready = !!landmarker.current && evaluate(angleRef.current, a).ready;
-        const step = stepStability(stability.current, t, autoRef.current && ready && !busyRef.current, a.sharpness);
+        const step = stepStability(stability.current, t, autoRef.current && ready && !busyRef.current, a.sharpness, poseOf(a));
         stability.current = step.state;
         setProgress(step.progress);
         if (step.fire) {
@@ -152,8 +201,24 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
     setBusy(true);
     busyRef.current = true;
     try {
-      const a = latest.current;
-      const photo = await encodeJpeg(v, v.videoWidth, v.videoHeight);
+      // Congela o quadro agora; é ESTE quadro que é verificado e guardado, não o que vier depois.
+      const snap = document.createElement('canvas');
+      snap.width = v.videoWidth;
+      snap.height = v.videoHeight;
+      snap.getContext('2d')?.drawImage(v, 0, 0);
+      let a = latest.current;
+      if (!manual) {
+        const verdict = await verifySnapshot(snap, angleRef.current, flipRef.current, a);
+        if (!verdict.ok) {
+          stability.current = initialStability();
+          setProgress(0);
+          setDiscarded(`Foto descartada: ${verdict.reason} Tente de novo.`);
+          return;
+        }
+        a = verdict.analysis;
+        setDiscarded(null);
+      }
+      const photo = await encodeJpeg(snap, snap.width, snap.height);
       onCaptured({
         ...photo,
         meta: {
@@ -224,6 +289,9 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
               </p>
             )}
             {evaluation && <CaptureChecks checks={evaluation.checks} />}
+            {discarded && (
+              <p role="alert" className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">{discarded}</p>
+            )}
 
             <div className="flex flex-col gap-2">
               <Button onClick={() => capture(false)} disabled={!evaluation?.ready} loading={busy} icon={<Camera className="size-4" aria-hidden />}>
@@ -287,6 +355,34 @@ export function CameraCapture({ angle, onCaptured }: { angle: PhotoAngle; onCapt
 }
 
 const round = (n: number) => Math.round(n * 10_000) / 10_000;
+
+type Verdict = { ok: true; analysis: FrameAnalysis & { landmarks: { x: number; y: number; z: number }[] | null } } | { ok: false; reason: string };
+
+/**
+ * Confere o quadro congelado (não o ao vivo) contra as regras da vista. Se o detector de imagem não carregar,
+ * usa a última análise, que precisa estar válida. Quem se mexeu entre a contagem e o disparo é barrado aqui.
+ */
+async function verifySnapshot(
+  snap: HTMLCanvasElement,
+  angle: PhotoAngle,
+  flip: boolean,
+  fallback: (FrameAnalysis & { landmarks: { x: number; y: number; z: number }[] | null }) | null,
+): Promise<Verdict> {
+  let analysis = fallback;
+  try {
+    const lm = await getLandmarker('IMAGE');
+    const raw = analyzeResult(lm.detect(snap), measureSharpness(snap, snap.width, snap.height));
+    analysis = { ...raw, ...applyFlip(raw, flip) };
+  } catch {
+    /* sem detector de imagem: vale a última análise ao vivo */
+  }
+  if (!analysis) return { ok: false, reason: 'não foi possível medir o rosto.' };
+  const result = evaluate(angle, analysis);
+  if (result.ready) return { ok: true, analysis };
+  const first = result.checks.find((c) => !c.ok);
+  const reason = first ? `${(first.hint ?? first.label).replace(/\.$/, '')}.` : 'o rosto saiu da posição.';
+  return { ok: false, reason: reason.charAt(0).toLowerCase() + reason.slice(1) };
+}
 
 function drawOverlay(
   canvas: HTMLCanvasElement | null,

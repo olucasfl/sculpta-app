@@ -11,11 +11,11 @@ import {
 /**
  * Sinal do yaw. A matriz do MediaPipe dá a rotação no referencial da câmera; aqui
  * convertemos para o referencial do paciente (positivo = virou para a própria esquerda).
- * [validar com câmera real] Se a liberação acontecer no lado trocado, inverta este sinal.
+ * Validado com câmera real (19/11/2026): com -1 a vista "esquerda" liberava ao virar para a direita; +1 corrige.
  */
-export const YAW_SIGN = -1;
-/** Sinal da inclinação (positivo = queixo para cima). [validar com câmera real] Se "queixo para cima" for reconhecido ao abaixar, inverta. */
-export const PITCH_SIGN = 1;
+export const YAW_SIGN = 1;
+/** Sinal da inclinação (positivo = queixo para cima). Validado com câmera real (19/11/2026): com +1, "queixo para cima" só liberava ao abaixar; -1 corrige. */
+export const PITCH_SIGN = -1;
 
 /** Yaw em graus a partir da matriz 4x4 (column-major) `facialTransformationMatrixes`. */
 export function yawFromMatrix(m: ArrayLike<number>): number {
@@ -45,7 +45,9 @@ export function faceBox(landmarks: Point[]) {
     if (p.y < minY) minY = p.y;
     if (p.y > maxY) maxY = p.y;
   }
-  return { heightRatio: maxY - minY, centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2 };
+  // margin: menor distância do rosto a uma borda da imagem (negativo = rosto cortado).
+  const margin = Math.min(minX, minY, 1 - maxX, 1 - maxY);
+  return { heightRatio: maxY - minY, centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2, margin };
 }
 
 /** Converte RGBA em tons de cinza (luma BT.601). */
@@ -89,11 +91,17 @@ export interface FrameAnalysis {
   pitchDeg?: number | null;
   faceHeightRatio: number | null;
   centerOffset: number | null;
+  /** Folga entre o rosto e a borda da imagem (0–0,5). Ausente = não medido. */
+  edgeMargin?: number | null;
   sharpness: number | null;
 }
 
+/** Folga mínima do rosto até a borda e distância máxima do centro para liberar a foto. */
+export const EDGE_MARGIN_MIN = 0.03;
+export const CENTER_OFFSET_MAX = 0.1;
+
 export interface Check {
-  id: 'face' | 'angle' | 'pitch' | 'size' | 'center' | 'sharp';
+  id: 'face' | 'angle' | 'pitch' | 'size' | 'center' | 'frame' | 'sharp';
   ok: boolean;
   label: string;
   hint?: string;
@@ -142,8 +150,12 @@ export function evaluate(angle: PhotoAngle, a: FrameAnalysis): { checks: Check[]
     });
   }
   if (a.faceDetected && a.centerOffset !== null) {
-    const ok = a.centerOffset <= 0.15;
+    const ok = a.centerOffset <= CENTER_OFFSET_MAX;
     checks.push({ id: 'center', ok, label: 'Rosto centralizado', hint: ok ? undefined : 'Centralize o rosto na guia.' });
+  }
+  if (a.faceDetected && a.edgeMargin != null) {
+    const ok = a.edgeMargin >= EDGE_MARGIN_MIN;
+    checks.push({ id: 'frame', ok, label: 'Rosto inteiro na imagem', hint: ok ? undefined : 'Afaste-se ou centralize: o rosto não pode encostar na borda.' });
   }
   if (a.sharpness !== null) {
     const ok = a.sharpness >= SHARPNESS_MIN;
