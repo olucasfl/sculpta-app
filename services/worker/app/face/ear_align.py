@@ -68,14 +68,22 @@ def align_ear(img, outline, centroid, face_dir, size):
     # grossa
     for sc in (0.9, 1.0, 1.1, 1.2):
         for rot in (-15, -8, 0, 8, 15):
-            for dx in range(-int(0.45 * size), int(0.45 * size) + 1, 4):
-                for dy in range(-int(0.45 * size), int(0.45 * size) + 1, 4):
+            for dx in range(-int(0.45 * size), int(0.45 * size) + 1, 8):
+                for dy in range(-int(0.45 * size), int(0.45 * size) + 1, 8):
                     s_ = score(dx, dy, sc, rot)
                     if s_ > best[0]:
                         best = (s_, (dx, dy, sc, rot))
-    # fina
+    # intermediária (passo de 2 px em volta do melhor da grossa), depois fina
     dx0, dy0, sc0, rot0 = best[1]
-    for _ in range(3):
+    for dx in range(int(dx0) - 8, int(dx0) + 9, 2):
+        for dy in range(int(dy0) - 8, int(dy0) + 9, 2):
+            for sc in (sc0 - 0.05, sc0, sc0 + 0.05):
+                for rot in (rot0 - 4, rot0, rot0 + 4):
+                    s_ = score(dx, dy, sc, rot)
+                    if s_ > best[0]:
+                        best = (s_, (dx, dy, sc, rot))
+    dx0, dy0, sc0, rot0 = best[1]
+    for _ in range(2):
         for sc in np.linspace(sc0 - 0.06, sc0 + 0.06, 5):
             for rot in np.linspace(rot0 - 5, rot0 + 5, 5):
                 for dx in np.linspace(dx0 - 5, dx0 + 5, 6):

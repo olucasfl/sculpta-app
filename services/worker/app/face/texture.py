@@ -175,7 +175,7 @@ def uv_triangles(Ux, Dx, Fx, tex):
 def person_mask(img, face_px, head_px):
     """GrabCut com sementes: rosto = pessoa certa, silhueta da cabeça = provável, bordas = fundo certo."""
     h, w = img.shape[:2]
-    scale = 640 / max(h, w)
+    scale = 480 / max(h, w)
     small = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
     sh, sw = small.shape[:2]
     m = np.full((sh, sw), cv2.GC_PR_BGD, np.uint8)
