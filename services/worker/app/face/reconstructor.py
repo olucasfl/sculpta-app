@@ -17,9 +17,6 @@ from . import bases, fit, glb, hair, silhouette, texture
 # A silhueta de perfil melhora o erro de borda em ~1,5 mm, mas muda o formato do rosto em relação à primeira versão com
 # textura (a que ficou parecida com a pessoa). Desligada por padrão: o rosto fica como estava.
 REFINE_SILHOUETTE = False
-# O contorno da mandíbula e das bochechas (MediaPipe) corrige a largura: sem ele o modelo saía ~17 px (7% da altura do
-# rosto) mais largo e quadrado que a pessoa. Ligado.
-REFINE_OVAL = True
 
 # O ajuste só mede a consistência dos pontos nas fotos, não a semelhança com o rosto real.
 # Sem validação contra um escaneamento, a confiança nunca passa de "média".
@@ -85,10 +82,8 @@ class FlameReconstructor:
 
         V, beta, mirror, errors = fit.fit_views(views, self.fl, log=lambda *_: None)
         info: dict = {}
-        if REFINE_SILHOUETTE or REFINE_OVAL:
-            V, beta, info = silhouette.refine(
-                views, self.fl, self.masks, beta, mirror, profile=REFINE_SILHOUETTE, oval=REFINE_OVAL
-            )
+        if REFINE_SILHOUETTE:
+            V, beta, info = silhouette.refine(views, self.fl, self.masks, beta, mirror)
         sil = info.get("after")
         score = quality_score(errors, len(views), 1.0, sil)
         if score < 0.2:

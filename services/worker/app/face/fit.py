@@ -126,7 +126,6 @@ class View:
         self.t = np.zeros(2)
         self.weight = np.ones(len(obs_px))
         self.err = None
-        self.oval: np.ndarray | None = None
 
 
 def fit_view(view, fl, beta, mirror, flip_yaw=False, iters=1, fix_yaw=None):
@@ -198,21 +197,13 @@ def make_landmarker():
     return vision.FaceLandmarker.create_from_options(opts)
 
 
-# Contorno da mandíbula e das bochechas no MediaPipe (do canto direito da imagem, passando pelo queixo, ao esquerdo).
-# Só a metade de baixo do oval (a testa fica sob o cabelo) e sem os pontos da base do queixo: com eles o queixo
-# saía alongado e pontudo; o formato do queixo vem do restante do ajuste.
-JAW_OVAL = [454, 323, 361, 288, 397, 365, 379, 378, 149, 150, 136, 172, 58, 132, 93, 234]
-
-
 def make_view(landmarker, fl, name, img, path=""):
     """Detecta o rosto e devolve a vista (ou None se o MediaPipe não achar rosto)."""
     lm = detect(landmarker, img)
     if lm is None:
         return None
     h, w = img.shape[:2]
-    view = View(name, img, lm[fl["idx"], :2] * np.array([w, h]), path)
-    view.oval = lm[JAW_OVAL, :2] * np.array([w, h]) / view.H  # contorno do rosto na foto, na mesma unidade dos pontos
-    return view
+    return View(name, img, lm[fl["idx"], :2] * np.array([w, h]), path)
 
 
 def fit_views(views, fl, log=print):
