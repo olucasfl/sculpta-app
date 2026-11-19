@@ -82,3 +82,52 @@ def test_bases_do_flame_15_sliders_olhos_parados_e_simetria():
     jaw = next(t for t in b["targets"] if t["id"] == "jaw.width")["positions"]
     left, right = V[:, 0] > 0.02, V[:, 0] < -0.02
     assert abs(np.abs(jaw[left, 0]).sum() - np.abs(jaw[right, 0]).sum()) / max(np.abs(jaw[:, 0]).sum(), 1e-9) < 0.25
+
+
+@needs_flame
+def test_silhueta_aproxima_a_forma_de_um_rosto_conhecido(monkeypatch):
+    """Rosto sintético conhecido: fotos de frente e de perfil geradas por projeção. A silhueta de perfil deve
+    deixar a forma mais perto da verdade na região do nariz e do queixo do que só os pontos."""
+    import cv2
+
+    from app.face import fit, silhouette, texture
+
+    fl = fit.load_flame()
+    masks = texture.load_masks()
+    truth_beta = np.random.default_rng(3).normal(0, 0.8, fit.K_SHAPE)
+    truth = fl["v0"] + np.einsum("vdk,k->vd", fl["sd"], truth_beta)
+    L = fl["L0"] + fl["LD"] @ truth_beta
+    H0, W0, Hh = 640, 480, 420.0  # imagem e altura de rosto em pixels
+
+    def project(P, yaw):
+        R = fit.rotmat([yaw, 0, 0])
+        return fit.project(P @ R.T, 1.0 / 0.22, np.array([0.5, 0.5]), 1) * Hh
+
+    def make_views():
+        views = []
+        for name, yaw in (("FRONT", 0), ("LEFT_45", 45), ("RIGHT_45", -45), ("LEFT_90", 70), ("RIGHT_90", -70)):
+            obs = project(L, yaw)  # os 105 pontos de referência vistos de cada ângulo
+            v = fit.View(name, np.zeros((H0, W0, 3), np.uint8), obs)
+            views.append((v, yaw))
+        return views
+
+    pairs = make_views()
+    views = [v for v, _ in pairs]
+    yaw_of = {v.name: y for v, y in pairs}
+
+    def fake_skin(view, _fl, _V, _mirror, _masks):
+        mask = np.zeros((H0, W0), np.uint8)
+        px = project(truth, yaw_of[view.name])
+        for tri in fl["faces"]:
+            cv2.fillConvexPoly(mask, px[tri].astype(np.int32), 1)
+        return mask > 0
+
+    monkeypatch.setattr(silhouette, "skin_mask", fake_skin)
+    V0, beta0, mirror, _ = fit.fit_views(views, fl, log=lambda *_: None)
+    face = np.asarray(masks["face"], int)
+    base_err = np.linalg.norm(V0[face] - truth[face], axis=1).mean()
+    V1, _b, info = silhouette.refine(views, fl, masks, beta0.copy(), mirror)
+    new_err = np.linalg.norm(V1[face] - truth[face], axis=1).mean()
+    assert info["used"] == 2
+    print(f"erro da forma (mm): pontos {base_err * 1000:.2f} -> com silhueta {new_err * 1000:.2f}")
+    assert new_err < base_err, f"a silhueta não melhorou a forma: {base_err * 1000:.2f} -> {new_err * 1000:.2f} mm"

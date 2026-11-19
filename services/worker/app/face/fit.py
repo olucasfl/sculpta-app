@@ -128,7 +128,7 @@ class View:
         self.err = None
 
 
-def fit_view(view, fl, beta, mirror, flip_yaw=False, iters=1):
+def fit_view(view, fl, beta, mirror, flip_yaw=False, iters=1, fix_yaw=None):
     L = fl["L0"] + fl["LD"] @ beta
     nrm = vertex_normals(fl["v0"] + np.einsum("vdk,k->vd", fl["sd"], beta), fl["faces"])
     ln = np.einsum("lc,lcd->ld", fl["b"], nrm[fl["tri"]])
@@ -155,6 +155,9 @@ def fit_view(view, fl, beta, mirror, flip_yaw=False, iters=1):
     x0[4:6] = view.obs.mean(0) - p0.mean(0)
     lo = np.array([-135, -45, -25, -np.inf, -np.inf, -np.inf])
     hi = np.array([135, 45, 25, np.inf, np.inf, np.inf])
+    if fix_yaw is not None:  # giro fixado (ex.: vindo da silhueta); os demais parâmetros se ajustam
+        lo[0], hi[0] = fix_yaw - 1e-3, fix_yaw + 1e-3
+        x0[0] = fix_yaw
     x0[:3] = np.clip(x0[:3], lo[:3] + 1e-6, hi[:3] - 1e-6)
     sol = least_squares(
         res, x0, method="trf", bounds=(lo, hi), x_scale=np.array([10, 10, 10, 0.1, 0.1, 0.1]), max_nfev=60
@@ -162,7 +165,8 @@ def fit_view(view, fl, beta, mirror, flip_yaw=False, iters=1):
     return sol.x, float(np.sqrt(np.mean(sol.fun**2)))
 
 
-def solve_shape(views, fl, mirror, prior=1.0):
+def solve_shape(views, fl, mirror, prior=1.0, extra=None):
+    """Forma por mínimos quadrados com prior. `extra`: lista de (A, b) já ponderados (ex.: restrições de silhueta)."""
     rows, rhs = [], []
     for v in views:
         R = rotmat(v.rot)
@@ -176,6 +180,9 @@ def solve_shape(views, fl, mirror, prior=1.0):
         cy = -v.s * (fl["L0"] @ R1) + v.t[1]
         rows += [ax * w[:, None], ay * w[:, None]]
         rhs += [(v.obs[:, 0] - cx) * w, (v.obs[:, 1] - cy) * w]
+    for xa, xb in extra or []:
+        rows.append(xa)
+        rhs.append(xb)
     A = np.vstack(rows + [np.sqrt(prior) * np.eye(K_SHAPE)])
     b = np.concatenate(rhs + [np.zeros(K_SHAPE)])
     return np.linalg.lstsq(A, b, rcond=None)[0]

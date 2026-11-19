@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 from .. import pipeline
-from . import bases, fit, glb, texture
+from . import bases, fit, glb, silhouette, texture
 
 # O ajuste só mede a consistência dos pontos nas fotos, não a semelhança com o rosto real.
 # Sem validação contra um escaneamento, a confiança nunca passa de "média".
@@ -21,8 +21,13 @@ QUALITY_CAP = 0.79
 ERR_BEST, ERR_WORST = 0.006, 0.036
 
 
-def quality_score(errors: dict[str, tuple[float, float]], views: int, coverage: float) -> float:
+def quality_score(
+    errors: dict[str, tuple[float, float]], views: int, coverage: float, sil: dict[str, float | None] | None = None
+) -> float:
     med = float(np.mean([e[0] for e in errors.values()]))
+    sil_vals = [x for x in (sil or {}).values() if x is not None]
+    if sil_vals:  # a borda do perfil é mais exigente que os pontos: entra com o mesmo peso
+        med = 0.5 * med + 0.5 * float(np.mean(sil_vals))
     geo = float(np.clip(1 - (med - ERR_BEST) / (ERR_WORST - ERR_BEST), 0, 1))
     views_f = 1.0 if views >= 5 else 0.9 if views >= 4 else 0.8
     cover_f = float(np.clip(0.55 + 0.45 * (coverage / 0.75), 0.55, 1.0))
@@ -71,13 +76,15 @@ class FlameReconstructor:
                 "FACE_NOT_FOUND", "Rosto encontrado em poucas fotos. Refaça a captura com mais luz."
             )
 
-        V, _beta, mirror, errors = fit.fit_views(views, self.fl, log=lambda *_: None)
-        score = quality_score(errors, len(views), 1.0)
+        V, beta, mirror, errors = fit.fit_views(views, self.fl, log=lambda *_: None)
+        V, beta, info = silhouette.refine(views, self.fl, self.masks, beta, mirror)
+        sil = info.get("after")
+        score = quality_score(errors, len(views), 1.0, sil)
         if score < 0.2:
             raise pipeline.InputError("LOW_QUALITY", "Os pontos do rosto não ficaram coerentes entre as fotos.")
 
         r = texture.bake(V, texture.views_from_fit(views), self.fl["faces"], self.masks, mirror)
-        score = quality_score(errors, len(views), r["coverage"])
+        score = quality_score(errors, len(views), r["coverage"], sil)
         b = bases.build_bases(r["V"], self.fl["faces"], self.masks)
         src = r["src"]
         positions = r["Vx"] + head_offset(r["V"], self.masks)
