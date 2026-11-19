@@ -7,6 +7,7 @@ A malha da orelha do FLAME, já alinhada de forma aproximada, serve de semente:
   - mais perto do rosto que a borda da frente da malha = fundo (bochecha é pele e não dá para separar por cor).
 GrabCut decide o resto. Depois, um ajuste afim leva a silhueta da malha até a máscara (IoU).
 """
+
 from __future__ import annotations
 
 import cv2
@@ -80,7 +81,7 @@ def fit_affine_to_mask(outline, mask):
     x0, y0, bw, bh = cv2.boundingRect(np.stack([xs, ys], 1).astype(np.int32))
     pad = 40
     ox, oy = max(x0 - pad, 0), max(y0 - pad, 0)
-    sub = mask[oy:y0 + bh + pad, ox:x0 + bw + pad].astype(np.uint8)
+    sub = mask[oy : y0 + bh + pad, ox : x0 + bw + pad].astype(np.uint8)
 
     def transform(p):
         a, b, c_, d, tx, ty = p

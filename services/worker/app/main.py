@@ -38,7 +38,7 @@ def create_app(settings: Settings | None = None, http: httpx.Client | None = Non
         return {
             "status": "ok",
             "reconstructor": cfg.reconstructor,
-            "modelsLoaded": cfg.reconstructor == "mock",
+            "modelsLoaded": cfg.reconstructor in ("mock", "flame"),
         }
 
     @app.post("/v1/reconstruct", response_model=ReconstructDone | ReconstructFailed)

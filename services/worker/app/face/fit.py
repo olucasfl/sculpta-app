@@ -10,8 +10,10 @@ Método (tudo em numpy/scipy, sem GPU):
   3. Cor por vértice amostrada das fotos (só para conferir visualmente; a textura de verdade é outra etapa).
 Nada daqui é enviado para fora da máquina.
 """
+
 from __future__ import annotations
 
+import os
 import pickle
 import sys
 from pathlib import Path
@@ -24,14 +26,24 @@ from mediapipe.tasks.python import vision
 from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation as Rot
 
-ROOT = Path(__file__).resolve().parents[1]
-FLAME_DIR = ROOT / "assets" / "flame" / "x"
-MODEL = ROOT / "assets" / "face_landmarker.task"
+ROOT = Path(__file__).resolve().parents[2]
+# Modelos fora do Git (licença própria): pasta com flame2023_Open.pkl, FLAME_masks.pkl e mediapipe_landmark_embedding.npz
+FLAME_DIR = Path(os.environ.get("FLAME_DIR", ROOT / "assets" / "flame" / "x"))
+MODEL = Path(os.environ.get("LANDMARKER_MODEL", ROOT / "assets" / "face_landmarker.task"))
 
-K_SHAPE = 100          # componentes de forma usados (de 300)
-SIGMA_PX = 0.012       # ruído esperado do ponto, em fração da altura do rosto
-NOMINAL_YAW = {"FRONT": 0, "LEFT_20": 20, "LEFT_45": 45, "LEFT_90": 90, "RIGHT_20": -20, "RIGHT_45": -45, "RIGHT_90": -90,
-               "CHIN_UP": 0, "CHIN_DOWN": 0}
+K_SHAPE = 100  # componentes de forma usados (de 300)
+SIGMA_PX = 0.012  # ruído esperado do ponto, em fração da altura do rosto
+NOMINAL_YAW = {
+    "FRONT": 0,
+    "LEFT_20": 20,
+    "LEFT_45": 45,
+    "LEFT_90": 90,
+    "RIGHT_20": -20,
+    "RIGHT_45": -45,
+    "RIGHT_90": -90,
+    "CHIN_UP": 0,
+    "CHIN_DOWN": 0,
+}
 NOMINAL_PITCH = {"CHIN_UP": 20, "CHIN_DOWN": -20}
 
 
@@ -62,8 +74,17 @@ def load_flame():
     b = emb["lmk_b_coords"].astype(np.float64)
     L0 = np.einsum("lc,lcd->ld", b, v0[tri])
     LD = np.einsum("lc,lcdk->ldk", b, sd[tri])
-    return dict(v0=v0, sd=sd, faces=faces, tri=tri, b=b, L0=L0, LD=LD, idx=emb["landmark_indices"].astype(int),
-                lface=emb["lmk_face_idx"].astype(int))
+    return dict(
+        v0=v0,
+        sd=sd,
+        faces=faces,
+        tri=tri,
+        b=b,
+        L0=L0,
+        LD=LD,
+        idx=emb["landmark_indices"].astype(int),
+        lface=emb["lmk_face_idx"].astype(int),
+    )
 
 
 def vertex_normals(V, F):
@@ -132,10 +153,13 @@ def fit_view(view, fl, beta, mirror, flip_yaw=False, iters=1):
     x0[3] = np.log(sc)
     p0 = project(L @ R0.T, sc, np.zeros(2), mirror)
     x0[4:6] = view.obs.mean(0) - p0.mean(0)
-    lo = np.array([-135, -45, -25, -np.inf, -np.inf, -np.inf]); hi = np.array([135, 45, 25, np.inf, np.inf, np.inf])
+    lo = np.array([-135, -45, -25, -np.inf, -np.inf, -np.inf])
+    hi = np.array([135, 45, 25, np.inf, np.inf, np.inf])
     x0[:3] = np.clip(x0[:3], lo[:3] + 1e-6, hi[:3] - 1e-6)
-    sol = least_squares(res, x0, method="trf", bounds=(lo, hi), x_scale=np.array([10, 10, 10, 0.1, 0.1, 0.1]), max_nfev=60)
-    return sol.x, float(np.sqrt(np.mean(sol.fun ** 2)))
+    sol = least_squares(
+        res, x0, method="trf", bounds=(lo, hi), x_scale=np.array([10, 10, 10, 0.1, 0.1, 0.1]), max_nfev=60
+    )
+    return sol.x, float(np.sqrt(np.mean(sol.fun**2)))
 
 
 def solve_shape(views, fl, mirror, prior=1.0):
@@ -157,69 +181,92 @@ def solve_shape(views, fl, mirror, prior=1.0):
     return np.linalg.lstsq(A, b, rcond=None)[0]
 
 
-def run(photos_dir: Path, out_dir: Path):
-    out_dir.mkdir(parents=True, exist_ok=True)
-    fl = load_flame()
+def make_landmarker():
     opts = vision.FaceLandmarkerOptions(
-        base_options=mpt.BaseOptions(model_asset_path=str(MODEL)), num_faces=1,
+        base_options=mpt.BaseOptions(model_asset_path=str(MODEL)),
+        num_faces=1,
         running_mode=vision.RunningMode.IMAGE,
     )
-    landmarker = vision.FaceLandmarker.create_from_options(opts)
+    return vision.FaceLandmarker.create_from_options(opts)
 
-    views: list[View] = []
-    for p in sorted(photos_dir.glob("*.jpg")):
-        name = p.stem.split("-")[0]
-        if name not in NOMINAL_YAW:
-            continue
-        img = cv2.imread(str(p))
-        lm = detect(landmarker, img)
-        if lm is None:
-            print(f"[aviso] sem rosto detectado: {name}")
-            continue
-        h, w = img.shape[:2]
-        obs = lm[fl["idx"], :2] * np.array([w, h])
-        views.append(View(name, img, obs, p))
-        print(f"{name:10s} {w}x{h}  rosto detectado")
-    if len(views) < 3:
-        sys.exit("poucas vistas com rosto detectado")
 
+def make_view(landmarker, fl, name, img, path=""):
+    """Detecta o rosto e devolve a vista (ou None se o MediaPipe não achar rosto)."""
+    lm = detect(landmarker, img)
+    if lm is None:
+        return None
+    h, w = img.shape[:2]
+    return View(name, img, lm[fl["idx"], :2] * np.array([w, h]), path)
+
+
+def fit_views(views, fl, log=print):
+    """Ajusta o FLAME a várias vistas. Devolve (V, beta, mirror, erros); erros[nome] = (mediana, p90) em fração da altura do rosto."""
     beta = np.zeros(K_SHAPE)
-    # 1) espelho global e sinal do giro, decididos por menor erro (as convenções do FLAME/câmera não são assumidas)
-    mirror = 1  # FLAME olha para +z e a esquerda do sujeito e +x (verificado nas mascaras do proprio modelo)
-
+    # FLAME olha para +z e a esquerda do sujeito é +x (verificado nas máscaras do próprio modelo)
+    mirror = 1
     for v in views:
         cands = []
-        for flip in (False, True):
+        for flip in (False, True):  # sinal do giro decidido por menor erro
             x, e = fit_view(v, fl, beta, mirror, flip_yaw=flip)
             cands.append((e, x))
         e, x = min(cands, key=lambda c: c[0])
         v.rot, v.s, v.t = x[:3], float(np.exp(x[3])), x[4:6]
-
-    # 2) alterna forma <-> pose
-    for it in range(10):
+    for it in range(10):  # alterna forma <-> pose
         beta = solve_shape(views, fl, mirror)
         errs = []
         for v in views:
             x, e = fit_view(v, fl, beta, mirror)
             v.rot, v.s, v.t, v.err = x[:3], float(np.exp(x[3])), x[4:6], e
             errs.append(e)
-        print(f"iter {it:2d}  erro médio {np.mean(errs) / 1.0:.4f}  |beta| {np.linalg.norm(beta):.2f}")
+        log(f"iter {it:2d}  erro médio {np.mean(errs):.4f}  |beta| {np.linalg.norm(beta):.2f}")
+    L = fl["L0"] + fl["LD"] @ beta
+    errors = {}
+    for v in views:
+        R = rotmat(v.rot)
+        d = np.linalg.norm(project(L @ R.T, v.s, v.t, mirror) - v.obs, axis=1)  # erro bruto, sem pesos de visibilidade
+        errors[v.name] = (float(np.median(d)), float(np.percentile(d, 90)))
+    V = fl["v0"] + np.einsum("vdk,k->vd", fl["sd"], beta)
+    return V, beta, mirror, errors
 
+
+def run(photos_dir: Path, out_dir: Path):
+    out_dir.mkdir(parents=True, exist_ok=True)
+    fl = load_flame()
+    landmarker = make_landmarker()
+    views: list[View] = []
+    for p in sorted(photos_dir.glob("*.jpg")):
+        name = p.stem.split("-")[0]
+        if name not in NOMINAL_YAW:
+            continue
+        v = make_view(landmarker, fl, name, cv2.imread(str(p)), p)
+        if v is None:
+            print(f"[aviso] sem rosto detectado: {name}")
+            continue
+        views.append(v)
+        print(f"{name:10s} rosto detectado")
+    if len(views) < 3:
+        sys.exit("poucas vistas com rosto detectado")
+    V, beta, mirror, errors = fit_views(views, fl)
     print("\nErro de reprojeção por vista (em % da altura do rosto, ponto a ponto):")
     for v in views:
-        # erro bruto sem pesos de visibilidade
-        R = rotmat(v.rot)
-        L = fl["L0"] + fl["LD"] @ beta
-        p = project(L @ R.T, v.s, v.t, mirror)
-        d = np.linalg.norm(p - v.obs, axis=1)
-        print(f"  {v.name:10s} yaw {v.rot[0]:+6.1f}  pitch {v.rot[1]:+6.1f}  mediana {np.median(d) * 100:4.1f}%  p90 {np.percentile(d, 90) * 100:4.1f}%")
-
-    V = fl["v0"] + np.einsum("vdk,k->vd", fl["sd"], beta)
+        med, p90 = errors[v.name]
+        print(
+            f"  {v.name:10s} yaw {v.rot[0]:+6.1f}  pitch {v.rot[1]:+6.1f}  mediana {med * 100:4.1f}%  p90 {p90 * 100:4.1f}%"
+        )
     colors = sample_colors(V, fl["faces"], views, mirror)
-    np.savez(out_dir / "fit.npz", beta=beta, V=V, mirror=mirror, colors=colors,
-             views=[v.name for v in views], rots=np.array([v.rot for v in views]),
-             ss=np.array([v.s for v in views]), ts=np.array([v.t for v in views]), Hs=np.array([v.H for v in views]),
-             paths=[v.path for v in views])
+    np.savez(
+        out_dir / "fit.npz",
+        beta=beta,
+        V=V,
+        mirror=mirror,
+        colors=colors,
+        views=[v.name for v in views],
+        rots=np.array([v.rot for v in views]),
+        ss=np.array([v.s for v in views]),
+        ts=np.array([v.t for v in views]),
+        Hs=np.array([v.H for v in views]),
+        paths=[v.path for v in views],
+    )
     write_obj(out_dir / "fit.obj", V, fl["faces"], colors)
     render_montage(out_dir / "montagem.png", V, fl["faces"], colors, mirror)
     print(f"\nSaída em {out_dir}")
@@ -261,8 +308,8 @@ def render(V, F, colors, yaw, mirror, size=520):
     nrm = vertex_normals(V, F) @ R.T
     sc = size / (np.ptp(P[:, 1]) * 1.12)
     cx, cy = P[:, 0].mean(), P[:, 1].mean()
-    X = (mirror * (P[:, 0] - cx) * sc + size / 2)
-    Y = (-(P[:, 1] - cy) * sc + size / 2)
+    X = mirror * (P[:, 0] - cx) * sc + size / 2
+    Y = -(P[:, 1] - cy) * sc + size / 2
     img = np.full((size, size, 3), 235, np.uint8)
     order = np.argsort(P[F].mean(axis=1)[:, 2])
     for ti in order:

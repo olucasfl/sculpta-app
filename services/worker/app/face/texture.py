@@ -1,6 +1,6 @@
 """Textura do rosto ajustado (caminho B, CPU).
 
-Uso: .venv/Scripts/python.exe scripts/bake_texture.py [pasta .out/fit]
+Uso de depuração: .venv/Scripts/python.exe -m app.face.texture [pasta .out/fit]
 
 1. UV próprio, por canto de triângulo: cabeça cilíndrica; olhos e orelhas em ilhas separadas na faixa de baixo
    (as duas faces da orelha não se sobrepõem). Não usa a textura oficial do FLAME (não comercial).
@@ -10,6 +10,7 @@ Uso: .venv/Scripts/python.exe scripts/bake_texture.py [pasta .out/fit]
 4. Preenche buracos, exporta .glb (vértices originais mantêm o índice; duplicatas só são acrescentadas ao final).
 Nada sai da máquina.
 """
+
 from __future__ import annotations
 
 import sys
@@ -18,10 +19,17 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).parent))
-import ear_align as ea  # noqa: E402
-import ear_segment as es  # noqa: E402
-import fit_poc as fp  # noqa: E402
+from . import ear_align as ea
+from . import ear_segment as es
+from . import fit as fp
+
+_verbose = True
+
+
+def log(*args):
+    if _verbose:
+        print(*args)
+
 
 TEX = 2048
 HEAD_V = 0.85  # fração de cima do mapa para a cabeça; a faixa de baixo é de olhos e orelhas
@@ -67,13 +75,13 @@ def rasterize(T, Dz, tri_map, w, h):
         if not inside.any():
             continue
         zz = l1 * Dz[m][0] + l2 * Dz[m][1] + l3 * Dz[m][2]
-        sz = z[miny:maxy + 1, minx:maxx + 1]
+        sz = z[miny : maxy + 1, minx : maxx + 1]
         upd = inside & (zz > sz)
         if not upd.any():
             continue
         sz[upd] = zz[upd]
-        tri_id[miny:maxy + 1, minx:maxx + 1][upd] = tri_map[m]
-        bary[miny:maxy + 1, minx:maxx + 1][upd] = np.stack([l1, l2, l3], -1)[upd]
+        tri_id[miny : maxy + 1, minx : maxx + 1][upd] = tri_map[m]
+        bary[miny : maxy + 1, minx : maxx + 1][upd] = np.stack([l1, l2, l3], -1)[upd]
     return tri_id, bary, z
 
 
@@ -93,10 +101,10 @@ def build_mesh(V, N, F, masks):
         sets[key] = set(idx.tolist())
         P = V[idx]
         if "eye" in key:
-            ax, ay = 0, 1                  # olho: plano frontal (x,y); a frente (z maior) vence
+            ax, ay = 0, 1  # olho: plano frontal (x,y); a frente (z maior) vence
             depth = P[:, 2]
         else:
-            ax, ay = 2, 1                  # orelha: plano lateral (z,y); o lado de fora (|x| maior) vence
+            ax, ay = 2, 1  # orelha: plano lateral (z,y); o lado de fora (|x| maior) vence
             depth = np.abs(P[:, 0])
         span_a, span_y = np.ptp(P[:, ax]), np.ptp(P[:, ay])
         sc = min(ISLAND_W / max(span_a, 1e-9), STRIP_VH / max(span_y, 1e-9)) * 0.95
@@ -109,6 +117,7 @@ def build_mesh(V, N, F, masks):
 
     eyes = sets["left_eyeball"] | sets["right_eyeball"]
     verts, nrm, uvs, depth_l = list(V), list(N), [tuple(c) for c in cyl], list(cyl_depth)
+    src = list(range(len(V)))  # vértice original de cada vértice da malha expandida
     for key in ("left_eyeball", "right_eyeball"):  # malhas separadas: o vértice original usa a ilha do olho
         for i, (u, v) in uv_isl[key].items():
             uvs[i] = (u, v)
@@ -132,10 +141,20 @@ def build_mesh(V, N, F, masks):
             kk = (j, round(float(u), 5), round(float(v), 5))
             if kk not in dup:
                 dup[kk] = len(verts)
-                verts.append(V[j]); nrm.append(N[j]); uvs.append((u, v)); depth_l.append(d)
+                verts.append(V[j])
+                nrm.append(N[j])
+                uvs.append((u, v))
+                depth_l.append(d)
+                src.append(j)
             Fx[ti, k] = dup[kk]
-    return (np.array(verts, np.float32), np.array(nrm, np.float32), np.array(uvs, np.float64),
-            Fx.astype(np.int64), np.array(depth_l))
+    return (
+        np.array(verts, np.float32),
+        np.array(nrm, np.float32),
+        np.array(uvs, np.float64),
+        Fx.astype(np.int64),
+        np.array(depth_l),
+        np.array(src, np.int64),
+    )
 
 
 def uv_triangles(Ux, Dx, Fx, tex):
@@ -200,7 +219,7 @@ def smooth_ratio(base_num, base_den, view_num, view_den, ys, xs):
 def fit_sphere(P):
     """Esfera por mínimos quadrados (centro e raio) numa nuvem de pontos."""
     A = np.c_[2 * P, np.ones(len(P))]
-    b = (P ** 2).sum(1)
+    b = (P**2).sum(1)
     sol = np.linalg.lstsq(A, b, rcond=None)[0]
     c = sol[:3]
     return c, float(np.sqrt(max(sol[3] + c @ c, 1e-12)))
@@ -215,7 +234,7 @@ def iris_color_from_photo(fv, c, R, mirror):
     h, w = img.shape[:2]
     x0, x1 = int(max(px[0] - rad, 0)), int(min(px[0] + rad, w - 1))
     y0, y1 = int(max(px[1] - rad, 0)), int(min(px[1] + rad, h - 1))
-    patch = img[y0:y1 + 1, x0:x1 + 1].reshape(-1, 3).astype(np.float32)
+    patch = img[y0 : y1 + 1, x0 : x1 + 1].reshape(-1, 3).astype(np.float32)
     if len(patch) < 30:
         return np.array([45.0, 75.0, 110.0], np.float32)
     lum = patch @ np.array([0.114, 0.587, 0.299], np.float32)
@@ -238,15 +257,15 @@ def procedural_eye(P, c, R, iris_bgr):
         u = np.clip((x - a) / (b - a), 0, 1)
         return u * u * (3 - 2 * u)
 
-    sclera = np.array([226, 231, 237], np.float32)                  # BGR: branco levemente quente
+    sclera = np.array([226, 231, 237], np.float32)  # BGR: branco levemente quente
     vein = np.clip(np.sin(23 * phi + 7 * np.sin(5 * phi + 3 * t)), 0, 1) * sstep(1.25, 2.1, t)
     sc = sclera[None, :] * (1 - 0.07 * vein[:, None] * np.array([0.3, 0.6, 1.0])[None, :])
-    sc *= (1 - 0.30 * sstep(1.6, 3.1, t))[:, None]                  # sombra nos cantos
+    sc *= (1 - 0.30 * sstep(1.6, 3.1, t))[:, None]  # sombra nos cantos
     fiber = 0.5 + 0.5 * np.sin(54 * phi + 3.2 * np.sin(11 * phi + 5 * t))
     ir = iris_bgr[None, :] * (0.60 + 0.75 * fiber * (1 - 0.35 * t))[:, None]
-    ir *= (1 + 0.20 * np.exp(-((t - 0.46) / 0.10) ** 2))[:, None]    # colarete
-    ir *= (1 - 0.60 * sstep(0.78, 0.97, t))[:, None]                 # anel límbico escuro
-    ir *= sstep(0.30, 0.42, t)[:, None]                              # pupila
+    ir *= (1 + 0.20 * np.exp(-(((t - 0.46) / 0.10) ** 2)))[:, None]  # colarete
+    ir *= (1 - 0.60 * sstep(0.78, 0.97, t))[:, None]  # anel límbico escuro
+    ir *= sstep(0.30, 0.42, t)[:, None]  # pupila
     mix = sstep(0.98, 1.07, t)[:, None]
     return np.clip(ir * (1 - mix) + sc * mix, 0, 255).astype(np.uint8)
 
@@ -272,18 +291,21 @@ def clean_skin(tex, skin):
     return np.clip(tex * (1 - soft) + out.astype(np.float32) * soft, 0, 255).astype(np.uint8)
 
 
-def deform_ears(V, F, masks, d, mirror):
+def deform_ears(V, F, masks, views, mirror):
     """Leva cada orelha 3D até a orelha real: segmenta a orelha na foto de perfil e deforma os vértices (afim no plano da imagem).
     Devolve V novo e, por orelha, o índice da vista usada."""
     V = V.copy()
-    names = list(d["views"])
-    yaws = np.array([r[0] for r in d["rots"]])
+    names = [v["name"] for v in views]
+    yaws = np.array([v["rot"][0] for v in views])
     nose = np.asarray(masks["nose"], int)
     used = {}
-    for key, pick in (("left_ear", np.argmin), ("right_ear", np.argmax)):   # esquerda do rosto aparece quando ele vira à direita
+    for key, pick in (
+        ("left_ear", np.argmin),
+        ("right_ear", np.argmax),
+    ):  # esquerda do rosto aparece quando ele vira à direita
         i = int(pick(yaws))
-        img = cv2.imread(str(d["paths"][i]))
-        R, s_, t_, H_ = fp.rotmat(d["rots"][i]), float(d["ss"][i]), d["ts"][i], float(d["Hs"][i])
+        img = views[i]["img"]
+        R, s_, t_, H_ = views[i]["R"], views[i]["s"], views[i]["t"], views[i]["H"]
         cam = V @ R.T
         pix = fp.project(cam, s_, t_, mirror) * H_
         e = np.asarray(masks[key], int)
@@ -298,12 +320,12 @@ def deform_ears(V, F, masks, d, mirror):
         A, tt, sc0, iou = es.fit_affine_to_mask(out_a, mask)
         hull_area = cv2.contourArea(cv2.convexHull(out_a.astype(np.float32)))
         ratio = mask.sum() / max(hull_area, 1.0)
-        print(f"  orelha {key}: vista {names[i]}, IoU {iou:.2f}, máscara/malha {ratio:.2f}x")
+        log(f"  orelha {key}: vista {names[i]}, IoU {iou:.2f}, máscara/malha {ratio:.2f}x")
         p1 = ea.apply_similarity(pix[e], cen, dx, dy, scl, rot)
         if iou >= 0.7 and 0.6 < ratio < 2.6:
             p1 = (p1 - sc0) @ A.T + sc0 + tt
         else:
-            print("    segmentação duvidosa: só alinhamento rígido")
+            log("    segmentação duvidosa: só alinhamento rígido")
         x = (p1[:, 0] / H_ - t_[0]) / (mirror * s_)
         y = -(p1[:, 1] / H_ - t_[1]) / s_
         newcam = cam[e].copy()
@@ -313,18 +335,35 @@ def deform_ears(V, F, masks, d, mirror):
     return V, used
 
 
-def main(out_dir: Path):
-    d = np.load(out_dir / "fit.npz", allow_pickle=True)
-    V, mirror = d["V"], int(d["mirror"])
-    fl = fp.load_flame()
-    F = fl["faces"]
-    masks = fp._Unpickler(open(fp.FLAME_DIR / "FLAME_masks.pkl", "rb"), encoding="latin1").load()
-    V, ear_view = deform_ears(V, F, masks, d, mirror)
+def load_masks():
+    with open(fp.FLAME_DIR / "FLAME_masks.pkl", "rb") as f:
+        return fp._Unpickler(f, encoding="latin1").load()
+
+
+def views_from_fit(fit_views):
+    """Vistas do ajuste (fit.View) -> dicionários usados pela textura."""
+    return [
+        dict(
+            name=v.name,
+            img=v.img,
+            rot=np.asarray(v.rot, float),
+            R=fp.rotmat(v.rot),
+            s=float(v.s),
+            t=np.asarray(v.t),
+            H=float(v.H),
+        )
+        for v in fit_views
+    ]
+
+
+def bake(V, views, F, masks, mirror, out_dir=None):
+    """Textura e malha final. Devolve dict(tex, Vx, Nx, Ux, Fx, V, ear_view). `out_dir` só liga arquivos de depuração."""
+    V, ear_view = deform_ears(V, F, masks, views, mirror)
     N = fp.vertex_normals(V, F)
 
-    Vx, Nx, Ux, Fx, Dx = build_mesh(V, N, F, masks)
-    print(f"malha expandida: {len(V)} -> {len(Vx)} vértices")
-    print("rasterizando o mapa de textura...")
+    Vx, Nx, Ux, Fx, Dx, src = build_mesh(V, N, F, masks)
+    log(f"malha expandida: {len(V)} -> {len(Vx)} vértices")
+    log("rasterizando o mapa de textura...")
     T, Dz, tri_map = uv_triangles(Ux, Dx, Fx, TEX)
     tid, bary, _ = rasterize(T, Dz, tri_map, TEX, TEX)
     valid = tid >= 0
@@ -332,16 +371,12 @@ def main(out_dir: Path):
     P = np.einsum("hwc,hwcd->hwd", bary, Vx[tri])
     Nn = np.einsum("hwc,hwcd->hwd", bary, Nx[tri])
     Nn /= np.linalg.norm(Nn, axis=-1, keepdims=True) + 1e-9
-    print(f"  cobertura do mapa: {valid.mean() * 100:.1f}% dos pixels")
+    log(f"  cobertura do mapa: {valid.mean() * 100:.1f}% dos pixels")
     ys, xs = np.nonzero(valid)
     Pv, Nv = P[valid], Nn[valid]
 
     face_idx = np.asarray(masks["face"], int)
     head_idx = np.unique(F.ravel())
-    views = []
-    for i, name in enumerate(d["views"]):
-        views.append(dict(name=str(name), img=cv2.imread(str(d["paths"][i])), R=fp.rotmat(d["rots"][i]),
-                          s=float(d["ss"][i]), t=d["ts"][i], H=float(d["Hs"][i])))
 
     samples, weights = [], []
     for v in views:
@@ -362,8 +397,11 @@ def main(out_dir: Path):
         wgt = np.clip(nz, 0, 1) ** 3 * inside * visible * person
         samples.append(col)
         weights.append(wgt.astype(np.float32))
-        cv2.imwrite(str(out_dir / f"mascara_{v['name']}.png"), mask.astype(np.uint8) * 255)
-        print(f"  {v['name']:10s} cobre {np.mean(wgt > 0.1) * 100:4.1f}% do mapa  (pessoa em {person[inside].mean() * 100:4.1f}% das amostras)")
+        if out_dir is not None:
+            cv2.imwrite(str(out_dir / f"mascara_{v['name']}.png"), mask.astype(np.uint8) * 255)
+        log(
+            f"  {v['name']:10s} cobre {np.mean(wgt > 0.1) * 100:4.1f}% do mapa  (pessoa em {person[inside].mean() * 100:4.1f}% das amostras)"
+        )
 
     # ---- mistura em duas bandas (ideia de multiband/Laplacian blending):
     #   baixa frequência (cor e luz) = média suave de TODAS as fotos que veem o ponto -> sem manchas nem emendas;
@@ -381,12 +419,14 @@ def main(out_dir: Path):
         if not sel.any():
             continue
         best_view = ear_view["left_ear" if name == "esquerda" else "right_ear"]
-        W[sel, best_view] = np.maximum(W[sel, best_view], 0.6)   # sem teste de oclusão: a concha fica atrás da hélice na foto
+        W[sel, best_view] = np.maximum(
+            W[sel, best_view], 0.6
+        )  # sem teste de oclusão: a concha fica atrás da hélice na foto
         for m in (sharp, broad):
             m[sel] = False
             m[sel, best_view] = True
         ear_best[name] = (best_view, sel)
-        print(f"  orelha {name} usa só a foto {views[best_view]['name']}")
+        log(f"  orelha {name} usa só a foto {views[best_view]['name']}")
 
     LOW_SIGMA, FEATHER = 22, 18
 
@@ -424,13 +464,13 @@ def main(out_dir: Path):
     have = np.zeros((TEX, TEX), np.uint8)
     have[covered] = 255
     del low_t, high_t, mixed_tex
-    print(f"  pixels com foto: {(have > 0).sum() / valid.sum() * 100:.1f}% do mapa válido")
+    log(f"  pixels com foto: {(have > 0).sum() / valid.sum() * 100:.1f}% do mapa válido")
 
     # ---- topo/fundo da cabeça e pescoço: a geometria ou as fotos não cobrem; usa cores reais, sem inventar detalhe
     Y2 = np.full((TEX, TEX), np.nan, np.float32)
     Y2[ys, xs] = Pv[:, 1]
     row = np.arange(TEX)[:, None] * np.ones((1, TEX))
-    in_head_map = row < HEAD_V * TEX                      # só a cabeça cilíndrica (não olhos/orelhas)
+    in_head_map = row < HEAD_V * TEX  # só a cabeça cilíndrica (não olhos/orelhas)
     eye_idx = np.concatenate([np.asarray(masks["left_eyeball"], int), np.asarray(masks["right_eyeball"], int)])
     y_eye = float(V[eye_idx][:, 1].mean())
     y_chin = float(V[face_idx][:, 1].min())
@@ -438,15 +478,31 @@ def main(out_dir: Path):
     noise = cv2.GaussianBlur(rng.normal(0, 1, (TEX, TEX)).astype(np.float32), (0, 0), 10)
     noise /= noise.std() + 1e-6
 
-    X2 = np.full((TEX, TEX), np.nan, np.float32); Z2 = np.full((TEX, TEX), np.nan, np.float32)
-    X2[ys, xs] = Pv[:, 0]; Z2[ys, xs] = Pv[:, 2]
+    X2 = np.full((TEX, TEX), np.nan, np.float32)
+    Z2 = np.full((TEX, TEX), np.nan, np.float32)
+    X2[ys, xs] = Pv[:, 0]
+    Z2[ys, xs] = Pv[:, 2]
     cz_head = float(V[head_idx][:, 2].mean())
-    skin_zone = valid & (have > 0) & in_head_map & (Y2 >= y_chin) & (Y2 <= y_eye + 0.075) & (Z2 > cz_head - 0.01) & (np.abs(X2) < 0.075)
+    skin_zone = (
+        valid
+        & (have > 0)
+        & in_head_map
+        & (Y2 >= y_chin)
+        & (Y2 <= y_eye + 0.075)
+        & (Z2 > cz_head - 0.01)
+        & (np.abs(X2) < 0.075)
+    )
     ycc0 = cv2.cvtColor(tex, cv2.COLOR_BGR2YCrCb)
-    is_skin = (ycc0[..., 1] >= 134) & (ycc0[..., 1] <= 178) & (ycc0[..., 2] >= 78) & (ycc0[..., 2] <= 126) & (ycc0[..., 0] > 70)
+    is_skin = (
+        (ycc0[..., 1] >= 134)
+        & (ycc0[..., 1] <= 178)
+        & (ycc0[..., 2] >= 78)
+        & (ycc0[..., 2] <= 126)
+        & (ycc0[..., 0] > 70)
+    )
     skin_zone = skin_zone & cv2.erode(is_skin.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)
     tex = clean_skin(tex, skin_zone)
-    print(f"  pele limpa em {skin_zone.sum() / valid.sum() * 100:.1f}% do mapa")
+    log(f"  pele limpa em {skin_zone.sum() / valid.sum() * 100:.1f}% do mapa")
 
     hair_seen = valid & (have > 0) & in_head_map & (Y2 > y_eye + 0.09)
     if hair_seen.sum() > 500:
@@ -454,14 +510,14 @@ def main(out_dir: Path):
         hole_hair = valid & (have == 0) & in_head_map & (Y2 > y_eye + 0.02)
         tex[hole_hair] = np.clip(hair_col[None, :] * (1 + 0.07 * noise[hole_hair][:, None]), 0, 255).astype(np.uint8)
         have[hole_hair] = 255
-        print(f"  cabelo preenchido com a cor real em {hole_hair.sum() / valid.sum() * 100:.1f}% do mapa")
+        log(f"  cabelo preenchido com a cor real em {hole_hair.sum() / valid.sum() * 100:.1f}% do mapa")
 
     front_i = next(i for i, v in enumerate(views) if v["name"] == "FRONT")
     fv = views[front_i]
     neck_low = np.asarray(masks["neck"], int)
     neck_low = neck_low[V[neck_low][:, 1] < y_chin - 0.035]
     chin_zone = valid & (have > 0) & in_head_map & (Y2 >= y_chin) & (Y2 < y_chin + 0.03)
-    print(f"  pescoço: {len(neck_low)} vértices baixos, {int(chin_zone.sum())} pixels na zona do queixo")
+    log(f"  pescoço: {len(neck_low)} vértices baixos, {int(chin_zone.sum())} pixels na zona do queixo")
     if len(neck_low) > 20 and chin_zone.sum() > 200:
         pxn = fp.project(V[neck_low] @ fv["R"].T, fv["s"], fv["t"], mirror) * fv["H"]
         hh, ww = fv["img"].shape[:2]
@@ -475,9 +531,19 @@ def main(out_dir: Path):
         blend = blend * (1 + 0.04 * noise[..., None])
         # pele do pescoço: só a baixa frequência das fotos (sem os arcos de fotos desalinhadas) + grão fino de pele
         ycc1 = cv2.cvtColor(tex, cv2.COLOR_BGR2YCrCb)
-        skin_like = valid & in_head_map & (ycc1[..., 1] >= 128) & (ycc1[..., 1] <= 185) & (ycc1[..., 0] > 60) & (Y2 > y_chin - 0.08)
+        skin_like = (
+            valid
+            & in_head_map
+            & (ycc1[..., 1] >= 128)
+            & (ycc1[..., 1] <= 185)
+            & (ycc1[..., 0] > 60)
+            & (Y2 > y_chin - 0.08)
+        )
         ml = skin_like.astype(np.float32)
-        smooth_skin = cv2.GaussianBlur(tex.astype(np.float32) * ml[..., None], (0, 0), 26) / np.maximum(cv2.GaussianBlur(ml, (0, 0), 26), 1e-3)[..., None]
+        smooth_skin = (
+            cv2.GaussianBlur(tex.astype(np.float32) * ml[..., None], (0, 0), 26)
+            / np.maximum(cv2.GaussianBlur(ml, (0, 0), 26), 1e-3)[..., None]
+        )
         has_ref = cv2.GaussianBlur(ml, (0, 0), 26) > 0.02
         base = np.where((neck_zone & has_ref)[..., None], smooth_skin, tex.astype(np.float32))
         grain = cv2.GaussianBlur(rng.normal(0, 1, (TEX, TEX)).astype(np.float32), (0, 0), 1.1)
@@ -486,22 +552,25 @@ def main(out_dir: Path):
         mixed = base * (1 - t) + blend * t
         tex[neck_zone] = np.clip(mixed[neck_zone], 0, 255).astype(np.uint8)
         have[neck_zone] = 255
-        print(f"  pescoço suavizado: pele {skin.astype(int).tolist()} -> camiseta {shirt.astype(int).tolist()}")
+        log(f"  pescoço suavizado: pele {skin.astype(int).tolist()} -> camiseta {shirt.astype(int).tolist()}")
 
     # ---- olhos procedurais (esclera, íris, anel límbico, pupila); a cor da íris vem da foto frontal
     eye_px = (ys >= HEAD_V * TEX) & (xs < 0.5 * TEX)
-    for name, key, side in (("esquerdo", "left_eyeball", xs < 0.24 * TEX), ("direito", "right_eyeball", xs >= 0.24 * TEX)):
+    for name, key, side in (
+        ("esquerdo", "left_eyeball", xs < 0.24 * TEX),
+        ("direito", "right_eyeball", xs >= 0.24 * TEX),
+    ):
         sel = eye_px & side
         if not sel.any():
             continue
         idx = np.asarray(masks[key], int)
         c0 = V[idx].mean(0)
-        front_half = V[idx][V[idx][:, 2] > c0[2]]          # o globo do FLAME tem uma parte que se estende para trás
+        front_half = V[idx][V[idx][:, 2] > c0[2]]  # o globo do FLAME tem uma parte que se estende para trás
         c, R = fit_sphere(front_half)
         iris = iris_color_from_photo(fv, c, R, mirror)
         tex[ys[sel], xs[sel]] = procedural_eye(Pv[sel], c, R, iris)
         have[ys[sel], xs[sel]] = 255
-        print(f"  olho {name}: raio {R * 1000:.1f} mm, íris BGR {iris.astype(int).tolist()}")
+        log(f"  olho {name}: raio {R * 1000:.1f} mm, íris BGR {iris.astype(int).tolist()}")
 
     hole = (valid & (have == 0)).astype(np.uint8) * 255
     small = cv2.resize(tex, (1024, 1024), interpolation=cv2.INTER_AREA)
@@ -528,10 +597,12 @@ def main(out_dir: Path):
         ez = ((ez > 0) | (around & (tex.sum(axis=2) == 0))).astype(np.uint8)
         small_t = cv2.resize(tex, (1024, 1024), interpolation=cv2.INTER_AREA)
         small_m = cv2.resize(ez * 255, (1024, 1024), interpolation=cv2.INTER_NEAREST)
-        fixed = cv2.resize(cv2.inpaint(small_t, small_m, 9, cv2.INPAINT_TELEA), (TEX, TEX), interpolation=cv2.INTER_CUBIC)
+        fixed = cv2.resize(
+            cv2.inpaint(small_t, small_m, 9, cv2.INPAINT_TELEA), (TEX, TEX), interpolation=cv2.INTER_CUBIC
+        )
         sel2 = (ez > 0) & valid
         tex[sel2] = fixed[sel2]
-        print(f"  orelha pintada no crânio removida em {sel2.sum() / valid.sum() * 100:.1f}% do mapa")
+        log(f"  orelha pintada no crânio removida em {sel2.sum() / valid.sum() * 100:.1f}% do mapa")
 
     # borda escura nas orelhas = cabelo que passou pelo recorte; preenche com a pele vizinha
     r0, c0 = int(HEAD_V * TEX), int(0.5 * TEX)
@@ -550,17 +621,50 @@ def main(out_dir: Path):
         fixed = cv2.inpaint(strip, dark * 255, 7, cv2.INPAINT_TELEA)
         strip[dark > 0] = fixed[dark > 0]
         tex[r0:, c0:] = strip
-        print(f"  borda escura da orelha corrigida: {int(dark.sum())} px")
-    cv2.imwrite(str(out_dir / "textura.png"), tex)
+        log(f"  borda escura da orelha corrigida: {int(dark.sum())} px")
+    return dict(
+        tex=tex,
+        Vx=Vx,
+        Nx=Nx,
+        Ux=Ux,
+        Fx=Fx,
+        src=src,
+        V=V,
+        ear_view=ear_view,
+        n_original=len(V),
+        coverage=float((have > 0).sum() / valid.sum()),
+    )
 
-    export_glb(out_dir / "rosto.glb", Vx, Nx, Ux, Fx, tex)
-    np.savez(out_dir / "malha_expandida.npz", V=Vx, N=Nx, UV=Ux, F=Fx, n_original=len(V))
-    preview(out_dir / "montagem_textura.png", Vx, Nx, Ux, Fx, tex, mirror)
-    print(f"\nSaída: {out_dir / 'rosto.glb'} e montagem_textura.png")
+
+def main(out_dir: Path):
+    """CLI de depuração: lê fit.npz (de fit.py) e grava textura, .glb simples e montagem."""
+    d = np.load(out_dir / "fit.npz", allow_pickle=True)
+    fl = fp.load_flame()
+    views = []
+    for i, name in enumerate(d["views"]):
+        views.append(
+            dict(
+                name=str(name),
+                img=cv2.imread(str(d["paths"][i])),
+                rot=np.asarray(d["rots"][i]),
+                R=fp.rotmat(d["rots"][i]),
+                s=float(d["ss"][i]),
+                t=d["ts"][i],
+                H=float(d["Hs"][i]),
+            )
+        )
+    mirror = int(d["mirror"])
+    r = bake(d["V"], views, fl["faces"], load_masks(), mirror, out_dir)
+    cv2.imwrite(str(out_dir / "textura.png"), r["tex"])
+    export_glb(out_dir / "rosto.glb", r["Vx"], r["Nx"], r["Ux"], r["Fx"], r["tex"])
+    np.savez(out_dir / "malha_expandida.npz", V=r["Vx"], N=r["Nx"], UV=r["Ux"], F=r["Fx"], n_original=r["n_original"])
+    preview(out_dir / "montagem_textura.png", r["Vx"], r["Nx"], r["Ux"], r["Fx"], r["tex"], mirror)
+    print("Saída: " + str(out_dir / "rosto.glb") + " e montagem_textura.png")
 
 
 def export_glb(path, Vx, Nx, Ux, Fx, tex):
     import pygltflib as g
+
     Vf, Nf, Uf, Ff = Vx.astype(np.float32), Nx.astype(np.float32), Ux.astype(np.float32), Fx.astype(np.uint32)
     _, png = cv2.imencode(".png", tex)
     blobs = [Vf.tobytes(), Nf.tobytes(), Uf.tobytes(), Ff.tobytes(), png.tobytes()]
@@ -574,19 +678,44 @@ def export_glb(path, Vx, Nx, Ux, Fx, tex):
         data += pad(b)
         off += len(pad(b))
     gl = g.GLTF2(
-        scene=0, scenes=[g.Scene(nodes=[0])], nodes=[g.Node(mesh=0)],
-        meshes=[g.Mesh(primitives=[g.Primitive(attributes=g.Attributes(POSITION=0, NORMAL=1, TEXCOORD_0=2), indices=3, material=0)])],
-        materials=[g.Material(pbrMetallicRoughness=g.PbrMetallicRoughness(baseColorTexture=g.TextureInfo(index=0), metallicFactor=0.0, roughnessFactor=0.65), doubleSided=True)],
+        scene=0,
+        scenes=[g.Scene(nodes=[0])],
+        nodes=[g.Node(mesh=0)],
+        meshes=[
+            g.Mesh(
+                primitives=[
+                    g.Primitive(attributes=g.Attributes(POSITION=0, NORMAL=1, TEXCOORD_0=2), indices=3, material=0)
+                ]
+            )
+        ],
+        materials=[
+            g.Material(
+                pbrMetallicRoughness=g.PbrMetallicRoughness(
+                    baseColorTexture=g.TextureInfo(index=0), metallicFactor=0.0, roughnessFactor=0.65
+                ),
+                doubleSided=True,
+            )
+        ],
         textures=[g.Texture(source=0, sampler=0)],
-        samplers=[g.Sampler(magFilter=g.LINEAR, minFilter=g.LINEAR_MIPMAP_LINEAR, wrapS=g.REPEAT, wrapT=g.CLAMP_TO_EDGE)],
+        samplers=[
+            g.Sampler(magFilter=g.LINEAR, minFilter=g.LINEAR_MIPMAP_LINEAR, wrapS=g.REPEAT, wrapT=g.CLAMP_TO_EDGE)
+        ],
         images=[g.Image(bufferView=4, mimeType="image/png")],
         accessors=[
-            g.Accessor(bufferView=0, componentType=g.FLOAT, count=len(Vf), type=g.VEC3, min=Vf.min(0).tolist(), max=Vf.max(0).tolist()),
+            g.Accessor(
+                bufferView=0,
+                componentType=g.FLOAT,
+                count=len(Vf),
+                type=g.VEC3,
+                min=Vf.min(0).tolist(),
+                max=Vf.max(0).tolist(),
+            ),
             g.Accessor(bufferView=1, componentType=g.FLOAT, count=len(Nf), type=g.VEC3),
             g.Accessor(bufferView=2, componentType=g.FLOAT, count=len(Uf), type=g.VEC2),
             g.Accessor(bufferView=3, componentType=g.UNSIGNED_INT, count=Ff.size, type=g.SCALAR),
         ],
-        bufferViews=views, buffers=[g.Buffer(byteLength=len(data))],
+        bufferViews=views,
+        buffers=[g.Buffer(byteLength=len(data))],
     )
     gl.set_binary_blob(data)
     gl.save_binary(str(path))

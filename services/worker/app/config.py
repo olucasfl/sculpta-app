@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 @dataclass(frozen=True)
 class Settings:
     worker_secret: str
-    reconstructor: str  # "mock" | "vggtface"
+    reconstructor: str  # "mock" | "flame" | "vggtface"
     template_path: Path
     max_photo_bytes: int = 15 * 1024 * 1024
     http_timeout_s: float = 60.0

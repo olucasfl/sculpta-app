@@ -23,10 +23,19 @@ ignore = ["S101"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S105", "S106"]
+# código numérico de visão (linhas longas, laços por pixel): sem as regras de estilo, mantém as de erro e segurança
+"app/face/*" = ["E501", "E702", "B905", "S301"]
+"scripts/*" = ["E501", "E702", "B905", "S301"]
 
 [tool.mypy]
 strict = true
 python_version = "3.11"
+
+[[tool.mypy.overrides]]
+# numpy/OpenCV/MediaPipe/SciPy sem tipos completos: o pacote de visão não passa pelo modo estrito
+module = ["app.face.*", "cv2.*", "mediapipe.*", "scipy.*", "pygltflib.*"]
+ignore_errors = true
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -89,6 +89,12 @@ class VGGTFaceReconstructor:
 
 
 def make_reconstructor(settings: Settings) -> Reconstructor:
+    if settings.reconstructor == "flame":
+        from .face.reconstructor import (
+            FlameReconstructor,
+        )  # importa só aqui: MediaPipe/OpenCV não são necessários no modo mock
+
+        return FlameReconstructor()
     if settings.reconstructor == "vggtface":
         return VGGTFaceReconstructor()
     return MockReconstructor(settings)

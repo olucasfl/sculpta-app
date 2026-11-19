@@ -4,6 +4,7 @@ Uso: .venv/Scripts/python.exe scripts/compare_fits.py <fit_referencia.npz> <fit_
 
 Mede ESTABILIDADE (quanto a forma muda ao trocar o conjunto de fotos), não exatidão contra o rosto real.
 """
+
 from __future__ import annotations
 
 import sys
@@ -23,7 +24,9 @@ def main(ref_path: str, others: list[str]):
         V = np.load(p)["V"]
         d = np.linalg.norm(V - ref, axis=1) * 1000
         parts = " | ".join(f"{k}: {d[i].mean():.2f} mm" for k, i in regions.items())
-        print(f"{p}: {parts} | cabeça toda: {d.mean():.2f} mm (p95 rosto {np.percentile(d[regions['face']], 95):.2f} mm)")
+        print(
+            f"{p}: {parts} | cabeça toda: {d.mean():.2f} mm (p95 rosto {np.percentile(d[regions['face']], 95):.2f} mm)"
+        )
 
 
 if __name__ == "__main__":

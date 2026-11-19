@@ -3,6 +3,7 @@
 A orelha do FLAME tem tamanho parecido mas cai deslocada. A borda de fora da orelha (contra o cabelo ou o fundo)
 é uma borda forte na foto; procuramos a transformação que faz o contorno externo da malha cair nela.
 """
+
 from __future__ import annotations
 
 import cv2
@@ -33,7 +34,9 @@ def outline_points(F, ear_idx, pix, step_px=2.0):
 def align_ear(img, outline, centroid, face_dir, size):
     """Devolve (dx, dy, escala, rot_graus). face_dir: vetor unitário do centro da orelha para o rosto."""
     ycc = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
-    skin = ((ycc[..., 1] >= 133) & (ycc[..., 1] <= 180) & (ycc[..., 2] >= 75) & (ycc[..., 2] <= 128) & (ycc[..., 0] > 40)).astype(np.float32)
+    skin = (
+        (ycc[..., 1] >= 133) & (ycc[..., 1] <= 180) & (ycc[..., 2] >= 75) & (ycc[..., 2] <= 128) & (ycc[..., 0] > 40)
+    ).astype(np.float32)
     skin = cv2.GaussianBlur(skin, (0, 0), 2.0)
     gray = cv2.GaussianBlur(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32), (0, 0), 1.6)
     gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
@@ -41,7 +44,7 @@ def align_ear(img, outline, centroid, face_dir, size):
     G = np.hypot(gx, gy)
 
     rel = outline - centroid
-    outer = rel @ face_dir < -0.12 * size            # só a borda de fora (longe do rosto)
+    outer = rel @ face_dir < -0.12 * size  # só a borda de fora (longe do rosto)
     rel_o = rel[outer]
     nrm = rel_o / (np.linalg.norm(rel_o, axis=1, keepdims=True) + 1e-9)
     if len(rel_o) < 20:

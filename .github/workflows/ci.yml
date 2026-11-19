@@ -43,7 +43,7 @@ jobs:
       - run: ruff check . && ruff format --check .
       - run: mypy app
       - run: pytest -q
-      - run: pip-audit -r requirements.txt
+      - run: pip-audit -r requirements.txt -r requirements-face.txt
 
   # Testes de tela (Playwright + axe) em pilha isolada. O 3D roda em WebGL por software, então é lento: só desktop.
   e2e:
