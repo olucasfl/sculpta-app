@@ -377,7 +377,13 @@ export function SimulatorPage() {
             onClear={() => viewer.current?.clearSculpt()}
           />
         )}
-        <AppearancePanel value={appearance} onChange={setAppearance} onFromPhoto={canWrite ? colorsFromFrontPhoto : undefined} photoBusy={photoBusy} photoAvailable={!!frontPhoto?.landmarks} />
+        {info?.textured ? (
+          <p className="mb-4 rounded-lg bg-subtle px-3 py-2 text-xs text-muted">
+            Pele, olhos e cabelo vêm das fotos deste paciente. O ajuste de aparência vale só para o modelo demonstrativo.
+          </p>
+        ) : (
+          <AppearancePanel value={appearance} onChange={setAppearance} onFromPhoto={canWrite ? colorsFromFrontPhoto : undefined} photoBusy={photoBusy} photoAvailable={!!frontPhoto?.landmarks} />
+        )}
         <div className="mb-1 flex items-center justify-between">
           <h2 className="font-semibold">{preset.label}</h2>
           {regionsInPreset.some((rg) => regionHasChanges(history.live, rg)) && (

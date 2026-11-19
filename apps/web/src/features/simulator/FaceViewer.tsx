@@ -42,6 +42,8 @@ export interface ModelInfo {
   notice: string | null;
   vertices: number;
   sliders: string[];
+  /** O .glb traz a textura das fotos do paciente (pele, olhos e cabelo vêm dela, não da aparência do painel). */
+  textured: boolean;
 }
 
 export interface ViewerHandle {
@@ -165,7 +167,7 @@ function FaceModel({
   const ring = useRef<THREE.Mesh>(null);
   const lastStamp = useRef<THREE.Vector3 | null>(null);
 
-  const { mesh, eyes, regionAttrs, runtime } = useMemo(() => {
+  const { mesh, eyes, regionAttrs, runtime, textured } = useMemo(() => {
     let source: THREE.Mesh | null = null;
     gltf.scene.traverse((o) => {
       if (!source && (o as THREE.Mesh).isMesh) source = o as THREE.Mesh;
@@ -175,8 +177,11 @@ function FaceModel({
     const geometry = src.geometry.clone();
     const n = geometry.getAttribute('position').count;
     geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+    // Modelo reconstruído traz a textura das fotos: ela substitui a cor de pele do painel.
+    const photoMap = ((src.material as THREE.MeshStandardMaterial | undefined)?.map ?? null) as THREE.Texture | null;
     const material = new THREE.MeshPhysicalMaterial({
       color: '#ffffff',
+      map: photoMap,
       vertexColors: true,
       roughness: 0.6,
       sheen: 0.35,
@@ -192,6 +197,7 @@ function FaceModel({
     m.morphTargetDictionary = { ...(src.morphTargetDictionary ?? {}) };
     m.morphTargetInfluences = new Array(Object.keys(m.morphTargetDictionary).length).fill(0);
     m.updateMorphTargets();
+    m.userData.textured = !!photoMap;
     const extras = (src.userData ?? {}) as { kind?: ModelInfo['kind']; notice?: string; eyes?: { centers: [number, number, number][]; radius: number } };
     const attrs = new Map<FaceRegion, THREE.BufferAttribute>();
     for (const r of REGIONS) {
@@ -203,8 +209,9 @@ function FaceModel({
       notice: extras.notice ?? null,
       vertices: n,
       sliders: Object.keys(m.morphTargetDictionary),
+      textured: !!photoMap,
     });
-    return { mesh: m, eyes: extras.eyes ?? null, regionAttrs: attrs, runtime };
+    return { mesh: m, eyes: extras.eyes ?? null, regionAttrs: attrs, runtime, textured: !!photoMap };
     // onLoaded é estável o bastante; recriar a malha a cada render seria caro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gltf]);
@@ -259,7 +266,7 @@ function FaceModel({
   // Destaque de região por cor de vértice.
   useEffect(() => {
     const color = mesh.geometry.getAttribute('color') as THREE.BufferAttribute;
-    const base = new THREE.Color(skinHex);
+    const base = new THREE.Color(mesh.userData.textured ? '#ffffff' : skinHex);
     const c = new THREE.Color();
     const tints = Object.fromEntries(REGIONS.map((r) => [r, new THREE.Color(REGION_TINT[r])])) as Record<FaceRegion, THREE.Color>;
     for (let v = 0; v < color.count; v++) {
@@ -509,7 +516,7 @@ function FaceModel({
       </mesh>
       {eyes && <Eyes eyes={eyes} irisHex={irisColor(look)} />}
       {eyes && <BrowsAndLashes head={mesh} eyes={eyes} browHex={look.browHex} />}
-      {look.hairVisible && (
+      {look.hairVisible && !textured && (
         <Hair head={mesh} params={{ volume: look.hairVolume, length: look.hairLength, hairline: look.hairline, eyeY: eyes?.centers[0]?.[1] }} hex={look.hairHex} />
       )}
     </group>
@@ -562,7 +569,7 @@ function Rig({
         if (material) {
           material.vertexColors = false;
           material.wireframe = false;
-          material.color.copy(shared.current.skin);
+          material.color.copy(shared.current.mesh?.userData.textured ? new THREE.Color('#ffffff') : shared.current.skin);
           material.needsUpdate = true;
         }
         const ringObj = scene.getObjectByName('brush-ring');
