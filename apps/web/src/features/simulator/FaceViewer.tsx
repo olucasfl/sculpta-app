@@ -8,6 +8,7 @@ import { BrowsAndLashes, Eyes, Hair } from './FaceExtras';
 import { HairStrands } from './HairStrandsView';
 import { distanceForZone, zoneBounds } from './zone';
 import { headDisplacement } from './hairDeform';
+import { applyMorphNames } from './morph';
 import { fillHeatColors } from './heat';
 import { pointsLayer, type AppPoint } from './points';
 import { resolveStyle, type DetectedHair, type HairModelId } from './hairStyles';
@@ -242,9 +243,7 @@ function FaceModel({
     runtime?.patchMaterial(material);
     applySkinShader(material, skinMix);
     const m = new THREE.Mesh(geometry, material);
-    m.morphTargetDictionary = { ...(src.morphTargetDictionary ?? {}) };
-    m.morphTargetInfluences = new Array(Object.keys(m.morphTargetDictionary).length).fill(0);
-    m.updateMorphTargets();
+    applyMorphNames(m, src.morphTargetDictionary); // sem isto os sliders ficam sem efeito (ver morph.ts)
     m.userData.textured = !!photoMap;
     m.userData.photoMap = photoMap;
     const extras = (src.userData ?? {}) as {
@@ -266,7 +265,7 @@ function FaceModel({
       kind: extras.kind ?? 'RECONSTRUCTION',
       notice: extras.notice ?? null,
       vertices: n,
-      sliders: Object.keys(m.morphTargetDictionary),
+      sliders: Object.keys(m.morphTargetDictionary ?? {}),
       textured: !!photoMap,
       hairStyle: extras.hairStyle ?? null,
       hairColor: extras.hairColor ?? null,

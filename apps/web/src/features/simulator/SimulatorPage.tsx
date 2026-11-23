@@ -23,6 +23,8 @@ import {
   Maximize,
   MousePointerClick,
   Move3d,
+  PanelRightClose,
+  PanelRightOpen,
   PenTool,
   Redo2,
   RotateCcw,
@@ -102,6 +104,9 @@ export function SimulatorPage() {
   const [savedPoints, setSavedPoints] = useState('[]');
   const [compare, setCompare] = useState<CompareMode>('off');
   const [compareOpen, setCompareOpen] = useState(false);
+  /** Painel da direita: um procedimento por vez (aba Procedimento) ou pele, olhos e cabelo (aba Aparência). */
+  const [panelTab, setPanelTab] = useState<'procedure' | 'look'>('procedure');
+  const [panelOpen, setPanelOpen] = useState(true);
   /** Miniaturas das 5 vistas (a simulação como está agora); geradas só com o painel Comparar aberto. */
   const [thumbs, setThumbs] = useState<Partial<Record<ViewName, string>>>({});
   const [curtain, setCurtain] = useState(0.5);
@@ -430,7 +435,7 @@ export function SimulatorPage() {
                   setFocus((f) => ({ regions, nonce: (f?.nonce ?? 0) + 1 })); // destaca a zona e enquadra a câmera nela
                 }}
                 className={cn(
-                  'flex w-full items-center justify-between gap-3 whitespace-nowrap rounded-lg px-3 py-1.5 text-left text-sm font-medium',
+                  'flex min-h-11 w-full items-center justify-between gap-3 whitespace-nowrap rounded-lg px-3 py-1.5 text-left text-sm font-medium',
                   p.id === presetId ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle hover:text-ink',
                   !isAvailable(p) && 'opacity-50',
                 )}
@@ -443,56 +448,103 @@ export function SimulatorPage() {
         })}
       </ul>
 
-      {/* Controles da região: flutuam sobre a imagem, o resultado aparece na hora */}
-      <div className={cn(GLASS, 'absolute right-3 top-24 z-20 max-h-[calc(100%-10.5rem)] w-72 overflow-y-auto p-4 max-md:inset-x-3 max-md:bottom-24 max-md:top-auto max-md:max-h-[38%] max-md:w-auto')}>
-        {mode === 'brush' && canWrite && (
-          <BrushPanel
-            brush={brushSettings}
-            onChange={setBrushSettings}
-            state={sculptState}
-            zoneLabel={preset.label}
-            onUndo={() => viewer.current?.undoSculpt()}
-            onRedo={() => viewer.current?.redoSculpt()}
-            onClear={() => viewer.current?.clearSculpt()}
-          />
-        )}
-        {info?.textured ? (
-          <div className="mb-4 flex flex-col gap-3 border-b border-line pb-4">
-            <p className="rounded-lg bg-subtle px-3 py-2 text-xs text-muted">
-              Pele e olhos vêm das fotos deste paciente. O ajuste de aparência vale só para o modelo demonstrativo.
-            </p>
-            <HairPanel value={appearance} onChange={setAppearance} detected={info.hairStyle} photoColor={info.hairColor} />
+      {/* Painel da direita: abas Procedimento e Aparência; pode ser recolhido para ver o rosto inteiro */}
+      {!panelOpen && (
+        <button
+          type="button"
+          onClick={() => setPanelOpen(true)}
+          aria-label="Mostrar o painel"
+          className={cn(GLASS, 'absolute right-3 top-24 z-20 inline-flex min-h-11 items-center gap-1.5 px-3 text-sm font-medium max-md:bottom-24 max-md:top-auto')}
+        >
+          <PanelRightOpen className="size-4" aria-hidden /> Painel
+        </button>
+      )}
+      {panelOpen && (
+        <div className={cn(GLASS, 'absolute right-3 top-24 z-20 max-h-[calc(100%-10.5rem)] w-72 overflow-y-auto p-4 max-md:inset-x-3 max-md:bottom-24 max-md:top-auto max-md:max-h-[38%] max-md:w-auto')}>
+          <div className="mb-3 flex items-center gap-1">
+            <div role="tablist" aria-label="Painel" className="flex flex-1 gap-1 rounded-lg bg-subtle p-0.5">
+              {(
+                [
+                  ['procedure', 'Procedimento'],
+                  ['look', 'Aparência'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={panelTab === id}
+                  onClick={() => setPanelTab(id)}
+                  className={cn('min-h-10 flex-1 rounded-md px-2 text-sm font-medium', panelTab === id ? 'bg-surface text-ink shadow-card' : 'text-muted hover:text-ink')}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button type="button" onClick={() => setPanelOpen(false)} title="Recolher o painel" className="grid size-10 place-items-center rounded-md text-muted hover:bg-subtle">
+              <PanelRightClose className="size-4" aria-hidden />
+              <span className="sr-only">Recolher o painel</span>
+            </button>
           </div>
-        ) : (
-          <AppearancePanel value={appearance} onChange={setAppearance} onFromPhoto={canWrite ? colorsFromFrontPhoto : undefined} photoBusy={photoBusy} photoAvailable={!!frontPhoto?.landmarks} />
-        )}
-        <ProcedurePanel
-          preset={preset}
-          values={history.live}
-          maxMm={maxMmOf}
-          available={isAvailable(preset)}
-          hasChanges={regionsInPreset.some((rg) => regionHasChanges(history.live, rg)) || points.some((p) => p.procedureId === preset.id)}
-          disabled={!canWrite}
-          onChange={(id, v) => setHistory((h) => setLive(h, id, v))}
-          onCommit={() => setHistory(commit)}
-          onApplyShape={(vals) => setHistory((h) => commit(sliders.reduce((acc, x) => setLive(acc, x.id, vals[x.id] ?? 0), h)))}
-          onReset={() => {
-            setHistory((h) => regionsInPreset.reduce((acc, rg) => resetRegion(acc, rg), h));
-            setPoints((cur) => cur.filter((p) => p.procedureId !== preset.id));
-          }}
-          onFocusRegion={setHighlight}
-          points={points.filter((p) => p.procedureId === preset.id)}
-          selectedPointId={selectedPoint}
-          placing={placing}
-          onTogglePlacing={() => setPlacing((v) => !v)}
-          onSelectPoint={setSelectedPoint}
-          onUpdatePoint={(id, patch) => setPoints((cur) => cur.map((p) => (p.id === id ? { ...p, ...patch } : p)))}
-          onRemovePoint={(id) => {
-            setPoints((cur) => cur.filter((p) => p.id !== id));
-            setSelectedPoint((cur) => (cur === id ? null : cur));
-          }}
-        />
-      </div>
+
+          {panelTab === 'procedure' ? (
+            <div role="tabpanel" aria-label="Procedimento">
+              <ProcedurePanel
+                preset={preset}
+                values={history.live}
+                maxMm={maxMmOf}
+                available={isAvailable(preset)}
+                hasChanges={regionsInPreset.some((rg) => regionHasChanges(history.live, rg)) || points.some((p) => p.procedureId === preset.id)}
+                disabled={!canWrite}
+                onChange={(id, v) => setHistory((h) => setLive(h, id, v))}
+                onCommit={() => setHistory(commit)}
+                onApplyShape={(vals) => setHistory((h) => commit(sliders.reduce((acc, x) => setLive(acc, x.id, vals[x.id] ?? 0), h)))}
+                onReset={() => {
+                  setHistory((h) => regionsInPreset.reduce((acc, rg) => resetRegion(acc, rg), h));
+                  setPoints((cur) => cur.filter((p) => p.procedureId !== preset.id));
+                }}
+                onFocusRegion={setHighlight}
+                points={points.filter((p) => p.procedureId === preset.id)}
+                selectedPointId={selectedPoint}
+                placing={placing}
+                onTogglePlacing={() => setPlacing((v) => !v)}
+                onSelectPoint={setSelectedPoint}
+                onUpdatePoint={(id, patch) => setPoints((cur) => cur.map((p) => (p.id === id ? { ...p, ...patch } : p)))}
+                onRemovePoint={(id) => {
+                  setPoints((cur) => cur.filter((p) => p.id !== id));
+                  setSelectedPoint((cur) => (cur === id ? null : cur));
+                }}
+              />
+              {mode === 'brush' && canWrite && (
+                <div className="mt-4 border-t border-line pt-4">
+                  <BrushPanel
+                    brush={brushSettings}
+                    onChange={setBrushSettings}
+                    state={sculptState}
+                    zoneLabel={preset.label}
+                    onUndo={() => viewer.current?.undoSculpt()}
+                    onRedo={() => viewer.current?.redoSculpt()}
+                    onClear={() => viewer.current?.clearSculpt()}
+                  />
+                </div>
+              )}
+            </div>
+          ) : (
+            <div role="tabpanel" aria-label="Aparência">
+              {info?.textured ? (
+                <div className="flex flex-col gap-3">
+                  <p className="rounded-lg bg-subtle px-3 py-2 text-xs text-muted">
+                    Pele e olhos vêm das fotos deste paciente. O ajuste de aparência vale só para o modelo demonstrativo.
+                  </p>
+                  <HairPanel value={appearance} onChange={setAppearance} detected={info.hairStyle} photoColor={info.hairColor} />
+                </div>
+              ) : (
+                <AppearancePanel value={appearance} onChange={setAppearance} onFromPhoto={canWrite ? colorsFromFrontPhoto : undefined} photoBusy={photoBusy} photoAvailable={!!frontPhoto?.landmarks} />
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {versionsOpen && (
         <div className="absolute right-3 top-16 z-30 w-80 max-md:inset-x-3 max-md:w-auto">
@@ -549,13 +601,13 @@ export function SimulatorPage() {
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-1.5 p-3">
         <div className={cn(GLASS, 'pointer-events-auto flex flex-wrap items-center justify-center gap-2 px-2 py-1.5')}>
           <div role="group" aria-label="Modo" className="flex gap-1 rounded-lg bg-subtle p-0.5">
-            <button type="button" aria-pressed={mode === 'brush'} disabled={!canWrite} onClick={() => setMode('brush')} title="Pincel: modele a superfície com o mouse, a caneta ou o dedo" className={cn('inline-flex min-h-9 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium disabled:opacity-40', mode === 'brush' ? 'bg-primary-600 text-white shadow-card' : 'text-muted hover:text-ink')}>
+            <button type="button" aria-pressed={mode === 'brush'} disabled={!canWrite} onClick={() => setMode('brush')} title="Pincel: modele a superfície com o mouse, a caneta ou o dedo" className={cn('inline-flex min-h-11 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium disabled:opacity-40', mode === 'brush' ? 'bg-primary-600 text-white shadow-card' : 'text-muted hover:text-ink')}>
               <PenTool className="size-4" aria-hidden /> Pincel
             </button>
-            <button type="button" aria-pressed={mode === 'regions'} disabled={!canWrite} onClick={() => setMode('regions')} title="Regiões: arrastar sobre uma região move os controles dela" className={cn('inline-flex min-h-9 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium disabled:opacity-40', mode === 'regions' ? 'bg-primary-600 text-white shadow-card' : 'text-muted hover:text-ink')}>
+            <button type="button" aria-pressed={mode === 'regions'} disabled={!canWrite} onClick={() => setMode('regions')} title="Regiões: arrastar sobre uma região move os controles dela" className={cn('inline-flex min-h-11 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium disabled:opacity-40', mode === 'regions' ? 'bg-primary-600 text-white shadow-card' : 'text-muted hover:text-ink')}>
               <MousePointerClick className="size-4" aria-hidden /> Regiões
             </button>
-            <button type="button" aria-pressed={mode === 'rotate'} onClick={() => setMode('rotate')} className={cn('inline-flex min-h-9 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium', mode === 'rotate' ? 'bg-surface text-ink shadow-card' : 'text-muted hover:text-ink')}>
+            <button type="button" aria-pressed={mode === 'rotate'} onClick={() => setMode('rotate')} className={cn('inline-flex min-h-11 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium', mode === 'rotate' ? 'bg-surface text-ink shadow-card' : 'text-muted hover:text-ink')}>
               <Move3d className="size-4" aria-hidden /> Girar
             </button>
           </div>
@@ -564,26 +616,26 @@ export function SimulatorPage() {
             aria-expanded={compareOpen}
             onClick={() => setCompareOpen((v) => !v)}
             title="Comparar com o original, trocar de vista e dar zoom na zona"
-            className={cn('inline-flex min-h-9 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium', compareOpen || cmpMode !== 'off' ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle hover:text-ink')}
+            className={cn('inline-flex min-h-11 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium', compareOpen || cmpMode !== 'off' ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle hover:text-ink')}
           >
             <SplitSquareHorizontal className="size-4" aria-hidden />
             Comparar
             {cmpMode !== 'off' && <span className="font-normal">· {COMPARE_MODES.find((m) => m.id === cmpMode)?.label}</span>}
           </button>
-          <button type="button" aria-pressed={showRegions} onClick={() => setShowRegions((v) => !v)} title="Mostrar regiões" className={cn('rounded-md p-1.5', showRegions ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle')}>
+          <button type="button" aria-pressed={showRegions} onClick={() => setShowRegions((v) => !v)} title="Mostrar regiões" className={cn('grid size-11 place-items-center rounded-md', showRegions ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle')}>
             <Layers className="size-4" aria-hidden />
             <span className="sr-only">Mostrar regiões</span>
           </button>
-          <button type="button" aria-pressed={wireframe} onClick={() => setWireframe((v) => !v)} title="Malha (wireframe)" className={cn('rounded-md p-1.5', wireframe ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle')}>
+          <button type="button" aria-pressed={wireframe} onClick={() => setWireframe((v) => !v)} title="Malha (wireframe)" className={cn('grid size-11 place-items-center rounded-md', wireframe ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle')}>
             <Grid3x3 className="size-4" aria-hidden />
             <span className="sr-only">Malha (wireframe)</span>
           </button>
-          <button type="button" onClick={() => goTo('FRONT')} title="Recentralizar câmera" className="rounded-md p-1.5 text-muted hover:bg-subtle">
+          <button type="button" onClick={() => goTo('FRONT')} title="Recentralizar câmera" className="grid size-11 place-items-center rounded-md text-muted hover:bg-subtle">
             <Crosshair className="size-4" aria-hidden />
             <span className="sr-only">Recentralizar câmera</span>
           </button>
           {document.fullscreenEnabled && (
-            <button type="button" onClick={toggleFullscreen} title="Tela cheia" className="rounded-md p-1.5 text-muted hover:bg-subtle">
+            <button type="button" onClick={toggleFullscreen} title="Tela cheia" className="grid size-11 place-items-center rounded-md text-muted hover:bg-subtle">
               <Maximize className="size-4" aria-hidden />
               <span className="sr-only">Tela cheia</span>
             </button>

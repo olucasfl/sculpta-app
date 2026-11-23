@@ -19,6 +19,8 @@ import {
   can,
   PatientNoteCreate,
   SIMULATION_DISCLAIMER,
+  PROCEDURE_PRESETS,
+  SLIDER_MAX_MM,
   SLIDERS,
   SimulationParams,
   type DashboardStats,
@@ -212,7 +214,7 @@ export class ProductService {
   }
 }
 
-interface ReportData {
+export interface ReportData {
   clinicName: string;
   logo: Buffer | null;
   thumb: Buffer | null;
@@ -248,7 +250,7 @@ function wrap(text: string, font: PDFFont, size: number, width: number): string[
 
 const isPng = (b: Buffer) => b.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
 
-async function buildReportPdf(d: ReportData): Promise<Buffer> {
+export async function buildReportPdf(d: ReportData): Promise<Buffer> {
   const pdf = await PDFDocument.create();
   pdf.setTitle(`Relatório de simulação - ${safe(d.patientName)}`);
   pdf.setCreator('Sculpta');
@@ -258,8 +260,15 @@ async function buildReportPdf(d: ReportData): Promise<Buffer> {
   const ink = rgb(0.09, 0.12, 0.14);
   const muted = rgb(0.38, 0.43, 0.46);
   const accent = rgb(0.04, 0.4, 0.38);
-  const page: PDFPage = pdf.addPage([W, H]);
+  let page: PDFPage = pdf.addPage([W, H]);
   let y = H - M;
+  /** Abre outra página quando não cabe mais (o rodapé é desenhado em todas no fim). */
+  const ensureSpace = (h: number) => {
+    if (y - h < M + 80) {
+      page = pdf.addPage([W, H]);
+      y = H - M;
+    }
+  };
 
   // Cabeçalho com o logo da clínica (se houver)
   let x = M;
@@ -311,42 +320,84 @@ async function buildReportPdf(d: ReportData): Promise<Buffer> {
     y -= 8;
   }
 
-  page.drawText('Ajustes aplicados', { x: M, y, size: 11, font: bold, color: ink });
-  y -= 6;
-  const applied = SLIDERS.map((s) => ({ s, v: d.params[s.id] ?? 0 })).filter((r) => Math.abs(r.v) > 0.005);
-  if (applied.length === 0 && !d.hasSculpt) {
-    y -= 12;
+  page.drawText('Procedimentos simulados', { x: M, y, size: 11, font: bold, color: ink });
+  y -= 4;
+  // um bloco por procedimento: intensidade de cada ajuste em % do limite da simulação e em mm aproximados
+  const groups = PROCEDURE_PRESETS.map((pr) => ({
+    pr,
+    items: SLIDERS.filter((x) => (pr.sliders as readonly string[]).includes(x.id))
+      .map((x) => ({ x, v: d.params[x.id] ?? 0 }))
+      .filter((r) => Math.abs(r.v) > 0.005),
+  })).filter((g) => g.items.length > 0);
+  if (groups.length === 0 && !d.hasSculpt) {
+    y -= 14;
     page.drawText('Nenhum ajuste nesta versão.', { x: M, y, size: 10.5, font: regular, color: muted });
     y -= 16;
   }
-  for (const { s, v } of applied) {
-    y -= 18;
-    page.drawText(safe(s.label), { x: M, y, size: 10.5, font: regular, color: ink });
-    // barra de -100 a +100 (sem unidade clínica)
-    const bx = M + 250, bw = 150;
-    page.drawRectangle({ x: bx, y: y - 1, width: bw, height: 8, color: rgb(0.92, 0.94, 0.95) });
-    const mid = bx + bw / 2;
-    page.drawRectangle({ x: v >= 0 ? mid : mid + (v * bw) / 2, y: y - 1, width: Math.abs(v * bw) / 2, height: 8, color: accent });
-    page.drawText(`${v > 0 ? '+' : ''}${Math.round(v * 100)}`, { x: bx + bw + 10, y, size: 10, font: bold, color: ink });
+  for (const { pr, items } of groups) {
+    ensureSpace(34 + items.length * 18 + 30);
+    y -= 22;
+    page.drawText(safe(pr.label), { x: M, y, size: 11, font: bold, color: accent });
+    for (const { x: sl, v } of items) {
+      y -= 17;
+      page.drawText(safe(sl.label), { x: M + 10, y, size: 10, font: regular, color: ink });
+      // barra de -100% a +100% do limite do controle
+      const bx = M + 235, bw = 110;
+      page.drawRectangle({ x: bx, y: y - 1, width: bw, height: 8, color: rgb(0.92, 0.94, 0.95) });
+      const mid = bx + bw / 2;
+      page.drawRectangle({ x: v >= 0 ? mid : mid + (v * bw) / 2, y: y - 1, width: Math.abs(v * bw) / 2, height: 8, color: accent });
+      const mm = Math.abs(v) * SLIDER_MAX_MM[sl.id];
+      const sign = v < 0 ? '-' : '';
+      page.drawText(`${sign}${Math.round(Math.abs(v) * 100)}% do limite | ${sign}${mm.toFixed(1).replace('.', ',')} mm`, {
+        x: bx + bw + 8,
+        y,
+        size: 9,
+        font: bold,
+        color: ink,
+      });
+    }
+    y -= 4;
+    for (const l of wrap(pr.limitation, regular, 8.5, W - 2 * M - 10)) {
+      y -= 11;
+      page.drawText(l, { x: M + 10, y, size: 8.5, font: regular, color: muted });
+    }
   }
   if (d.hasSculpt) {
-    y -= 18;
-    page.drawText('Inclui modelagem livre feita com o pincel no rosto 3D.', { x: M, y, size: 10.5, font: regular, color: ink });
+    ensureSpace(60);
+    y -= 22;
+    for (const l of wrap('Inclui modelagem fina e pontos de aplicação feitos no rosto 3D, dentro da zona dos procedimentos.', regular, 10.5, W - 2 * M)) {
+      page.drawText(l, { x: M, y, size: 10.5, font: regular, color: ink });
+      y -= 14;
+    }
+  }
+  ensureSpace(70);
+  y -= 14;
+  page.drawText('Como ler', { x: M, y, size: 10, font: bold, color: ink });
+  for (const t of [
+    '100% é o limite máximo de cada controle nesta simulação; os milímetros são o deslocamento aproximado no modelo 3D de um rosto médio.',
+    'Este relatório não traz faixa de resultado: ela só será incluída depois de validada por um profissional habilitado.',
+  ]) {
+    for (const l of wrap(t, regular, 9, W - 2 * M)) {
+      y -= 12;
+      page.drawText(l, { x: M, y, size: 9, font: regular, color: muted });
+    }
   }
 
-  // Rodapé: aviso e rastro
+  // Rodapé de todas as páginas: aviso e rastro
   const foot = [
     SIMULATION_DISCLAIMER,
-    'Os valores são posições dos controles (-100 a +100), sem unidade clínica: não são dose, volume de produto nem medida em milímetros.',
+    'Os milimetros sao do modelo 3D (um rosto estimado a partir das fotos) e aproximados. Nao sao dose, volume de produto nem previsao de resultado: o resultado real pode ser menor ou maior.',
     `Gerado em ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} por ${d.generatedBy}.`,
   ];
-  let fy = M + 14 * foot.length + 14;
-  page.drawLine({ start: { x: M, y: fy }, end: { x: W - M, y: fy }, thickness: 0.5, color: muted });
-  fy -= 14;
-  for (const t of foot) {
-    for (const l of wrap(t, regular, 8.5, W - 2 * M)) {
-      page.drawText(l, { x: M, y: fy, size: 8.5, font: regular, color: muted });
-      fy -= 11;
+  for (const pg of pdf.getPages()) {
+    let fy = M + 12 * foot.length + 24;
+    pg.drawLine({ start: { x: M, y: fy }, end: { x: W - M, y: fy }, thickness: 0.5, color: muted });
+    fy -= 14;
+    for (const t of foot) {
+      for (const l of wrap(t, regular, 8.5, W - 2 * M)) {
+        pg.drawText(l, { x: M, y: fy, size: 8.5, font: regular, color: muted });
+        fy -= 11;
+      }
     }
   }
   return Buffer.from(await pdf.save());

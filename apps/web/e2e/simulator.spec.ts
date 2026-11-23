@@ -108,7 +108,8 @@ test('aparência: pele, olhos, cabelo e sobrancelhas aparecem; controles mudam o
   mkdirSync(dir, { recursive: true });
   await page.getByRole('button', { name: 'Comparar' }).click(); // as vistas ficam no painel Comparar
   const panel = page.getByRole('group', { name: 'Vistas' });
-  await expect(page.getByText('Aparência', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Aparência' }).click(); // pele, olhos e cabelo ficam na aba Aparência
+  await expect(page.getByRole('tabpanel', { name: 'Aparência' })).toBeVisible();
   await page.screenshot({ path: join(dir, '30-aparencia-frente.png') });
   await panel.getByRole('button', { name: '45° esq.' }).click();
   await page.waitForTimeout(1200);
