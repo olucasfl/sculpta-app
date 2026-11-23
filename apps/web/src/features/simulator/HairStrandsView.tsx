@@ -1,6 +1,25 @@
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
-import { buildStrands } from './hairStrands';
+import { buildStrands, type PhotoImage } from './hairStrands';
+
+/** Lê a textura das fotos do modelo (reduzida a 512 px); sem textura legível (ex.: testes), devolve null. */
+function readPhoto(map: THREE.Texture | null | undefined): PhotoImage | null {
+  try {
+    const img = map?.image as (CanvasImageSource & { width: number; height: number }) | undefined;
+    if (!img || !img.width) return null;
+    const w = 512;
+    const h = Math.round((512 * img.height) / img.width);
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, w, h);
+    return { rgba: ctx.getImageData(0, 0, w, h).data, w, h };
+  } catch {
+    return null;
+  }
+}
 
 interface Props {
   /** Malha da cabeça (com `_hair`, `position`, `normal` e índices). */
@@ -27,11 +46,21 @@ export function HairStrands({ head, color, density, length, eyeY, faceZ }: Props
     if (!hairAttr || !pos || !nor || !index || density <= 0) return null;
     const hair = new Float32Array(hairAttr.count);
     for (let i = 0; i < hair.length; i++) hair[i] = hairAttr.getX(i); // getX devolve o valor já normalizado (0 a 1)
-    const s = buildStrands(pos.array, nor.array, index.array, hair, { density, length, seed: 11, eyeY, faceZ });
+    const uvAttr = g.getAttribute('uv') as THREE.BufferAttribute | undefined;
+    const photo = uvAttr ? readPhoto((head.material as THREE.MeshStandardMaterial).map) : null;
+    const b = new THREE.Color(color);
+    const s = buildStrands(pos.array, nor.array, index.array, hair, {
+      density,
+      length,
+      seed: 11,
+      eyeY,
+      faceZ,
+      ...(photo && uvAttr ? { photo, uv: uvAttr.array, base: [b.r, b.g, b.b] as [number, number, number] } : {}),
+    });
     if (s.strands === 0) return null;
     const base = new THREE.Color(color);
-    const colors = new Float32Array(s.shade.length * 3);
-    for (let i = 0; i < s.shade.length; i++) {
+    const colors = s.colors ?? new Float32Array(s.shade.length * 3);
+    for (let i = 0; i < s.shade.length && !s.colors; i++) {
       colors[i * 3] = Math.min(1, base.r * s.shade[i]!);
       colors[i * 3 + 1] = Math.min(1, base.g * s.shade[i]!);
       colors[i * 3 + 2] = Math.min(1, base.b * s.shade[i]!);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStrands, mulberry32 } from './hairStrands';
+import { buildStrands, mulberry32, orientationField } from './hairStrands';
 
 /** Disco plano no topo de uma "cabeça" (y = 0,1), com normais para cima: 2 triângulos de 10 x 10 cm. */
 function quad(hairA: number, hairB: number) {
@@ -59,6 +59,41 @@ describe('cabelo em fios', () => {
     expect(mean).toBeGreaterThan(L * 0.75);
     expect(mean).toBeLessThan(L * 1.25);
     expect(descended).toBe(s.strands); // nenhum fio sobe reto até o comprimento total
+  });
+
+  it('lê da foto a direção dos fios e a cor de cada um', () => {
+    const w = 64;
+    const h = 64;
+    const rgba = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        const stripe = x % 4 < 2 ? 40 : 120; // listras verticais: os fios correm na vertical
+        rgba[i] = stripe;
+        rgba[i + 1] = stripe * 0.6;
+        rgba[i + 2] = stripe * 0.3;
+        rgba[i + 3] = 255;
+      }
+    }
+    const f = orientationField({ rgba, w, h }, 4);
+    const c = 32 * w + 32;
+    expect(Math.abs(Math.sin(f.angle[c]!))).toBeGreaterThan(0.95);
+    expect(f.coherence[c]!).toBeGreaterThan(0.9);
+
+    const q = quad(1, 1);
+    const uv = [0, 0, 1, 0, 1, 1, 0, 1];
+    const s = buildStrands(q.pos, q.nor, q.idx, q.hair, {
+      density: 5,
+      length: 0.05,
+      seed: 2,
+      photo: { rgba, w, h },
+      uv,
+      base: [0.3, 0.2, 0.1],
+    });
+    expect(s.colors).toBeDefined();
+    expect(s.colors!.length).toBe(s.shade.length * 3);
+    expect(s.colors!.every((x) => Number.isFinite(x) && x >= 0 && x <= 1)).toBe(true);
+    expect(s.positions.every(Number.isFinite)).toBe(true);
   });
 
   it('o gerador pseudoaleatório fica em [0, 1) e muda com a semente', () => {
