@@ -31,6 +31,7 @@ import {
   Save,
   SplitSquareHorizontal,
   Undo2,
+  Thermometer,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { Link, useBlocker, useParams } from 'react-router';
@@ -59,6 +60,8 @@ import { colorsFromPhoto } from './photoColors';
 import type { SculptState } from './sculptRuntime';
 import { LowConfidenceScreen, NoWebglScreen } from './SimulatorStates';
 import { ProcedurePanel } from './ProcedurePanel';
+import { HEAT_MAX_MM } from './heat';
+import { isBilateral, newPointId, type AppPoint } from './points';
 import { SourceBadge } from './SourceBadge';
 
 const GLASS = 'rounded-2xl border border-line bg-surface/85 shadow-pop backdrop-blur-md';
@@ -104,6 +107,13 @@ export function SimulatorPage() {
   const [focus, setFocus] = useState<{ regions: FaceRegion[]; nonce: number } | null>(null);
   const [showRegions, setShowRegions] = useState(false);
   const [wireframe, setWireframe] = useState(false);
+  /** Mapa de alterações (cor pelo quanto a pele saiu do lugar). */
+  const [heatmap, setHeatmap] = useState(false);
+  /** Pontos de aplicação (viram parte da modelagem ao salvar a versão). */
+  const [points, setPoints] = useState<AppPoint[]>([]);
+  const [selectedPoint, setSelectedPoint] = useState<string | null>(null);
+  const [placing, setPlacing] = useState(false);
+  const [savedPoints, setSavedPoints] = useState('[]');
   const [compare, setCompare] = useState<CompareMode>('off');
   const [curtain, setCurtain] = useState(0.5);
   const [showOriginal, setShowOriginal] = useState(false);
@@ -197,7 +207,8 @@ export function SimulatorPage() {
     }
   }, [sim.data]);
 
-  const dirty = JSON.stringify(history.committed) !== savedParams || sculptState.revision !== savedRevision;
+  const pointsKey = JSON.stringify(points.map((p) => [p.id, p.pos, p.mm, p.radius, p.mirror]));
+  const dirty = JSON.stringify(history.committed) !== savedParams || sculptState.revision !== savedRevision || pointsKey !== savedPoints;
   const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname);
   useEffect(() => {
     if (!dirty) return;
@@ -215,6 +226,27 @@ export function SimulatorPage() {
     setPresetId(REGION_PRESET[r]);
   }, []);
   const onLoaded = useCallback((i: ModelInfo) => setInfo(i), []);
+
+  // regiões do procedimento escolhido (a zona onde os pontos valem)
+  const presetRegions = useMemo(() => {
+    const p = PROCEDURE_PRESETS.find((x) => x.id === presetId);
+    return [...new Set(SLIDERS.filter((x) => (p?.sliders as readonly string[] | undefined)?.includes(x.id)).map((x) => x.region))];
+  }, [presetId]);
+  const placingRegions = useMemo(() => (placing ? presetRegions : null), [placing, presetRegions]);
+  const onPlacePoint = useCallback(
+    (pos: [number, number, number] | null) => {
+      if (!pos) {
+        toast.error('Toque dentro da área destacada do procedimento.');
+        return;
+      }
+      const pt: AppPoint = { id: newPointId(), procedureId: presetId, regions: presetRegions, pos, mm: 1, radius: 10, mirror: isBilateral(presetRegions) };
+      setPoints((cur) => [...cur, pt]);
+      setSelectedPoint(pt.id);
+      setPlacing(false);
+    },
+    [presetId, presetRegions],
+  );
+  const onMovePoint = useCallback((id: string, pos: [number, number, number]) => setPoints((cur) => cur.map((p) => (p.id === id ? { ...p, pos } : p))), []);
 
   // Modelagem direta: arrastar sobre o rosto move os sliders da região (ver brush.ts).
   const brush = useRef<{ v: SliderId; h?: SliderId } | null>(null);
@@ -287,6 +319,13 @@ export function SimulatorPage() {
           view={view}
           viewNonce={viewNonce}
           focus={focus}
+          points={points}
+          selectedPointId={selectedPoint}
+          placing={placingRegions}
+          heatmap={heatmap}
+          onPlacePoint={onPlacePoint}
+          onMovePoint={onMovePoint}
+          onSelectPoint={setSelectedPoint}
           onRegionPick={onRegionPick}
           onLoaded={onLoaded}
           sculpt={mode === 'regions' && canWrite ? sculptHandlers : undefined}
@@ -302,6 +341,18 @@ export function SimulatorPage() {
           </div>
         )}
       </ViewerArea>
+
+      {heatmap && (
+        <div className={cn(GLASS, 'pointer-events-none absolute bottom-28 left-1/2 z-20 w-64 -translate-x-1/2 px-3 py-2 text-xs')} aria-label="Legenda do mapa de alterações">
+          <div className="mb-1 font-medium">Quanto a pele saiu do lugar</div>
+          <div className="h-2 rounded-full" style={{ background: 'linear-gradient(90deg,#dcdbd7 0%,#8fb8ff 8%,#3ecf8e 40%,#ffd240 70%,#ff4d4d 100%)' }} />
+          <div className="mt-1 flex justify-between text-muted tabular-nums">
+            <span>0 mm</span>
+            <span>{HEAT_MAX_MM / 2} mm</span>
+            <span>{HEAT_MAX_MM} mm</span>
+          </div>
+        </div>
+      )}
 
       {/* Barra superior */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-wrap items-start justify-between gap-2 p-3">
@@ -323,9 +374,12 @@ export function SimulatorPage() {
           <Button variant="secondary" size="sm" aria-label="Refazer" title="Refazer" disabled={!history.future.length} onClick={() => setHistory(redo)}>
             <Redo2 className="size-4" aria-hidden />
           </Button>
-          <Button variant="secondary" size="sm" icon={<RotateCcw className="size-4" aria-hidden />} disabled={!Object.keys(history.live).length && !sculptState.hasSculpt} onClick={() => {
+          <Button variant="secondary" size="sm" icon={<RotateCcw className="size-4" aria-hidden />} disabled={!Object.keys(history.live).length && !sculptState.hasSculpt && points.length === 0} onClick={() => {
             setHistory((h) => apply(h, {}));
             viewer.current?.clearSculpt();
+            setPoints([]);
+            setSelectedPoint(null);
+            setPlacing(false);
           }}>
             Restaurar tudo
           </Button>
@@ -406,13 +460,26 @@ export function SimulatorPage() {
           values={history.live}
           maxMm={maxMmOf}
           available={isAvailable(preset)}
-          hasChanges={regionsInPreset.some((rg) => regionHasChanges(history.live, rg))}
+          hasChanges={regionsInPreset.some((rg) => regionHasChanges(history.live, rg)) || points.some((p) => p.procedureId === preset.id)}
           disabled={!canWrite}
           onChange={(id, v) => setHistory((h) => setLive(h, id, v))}
           onCommit={() => setHistory(commit)}
           onApplyShape={(vals) => setHistory((h) => commit(sliders.reduce((acc, x) => setLive(acc, x.id, vals[x.id] ?? 0), h)))}
-          onReset={() => setHistory((h) => regionsInPreset.reduce((acc, rg) => resetRegion(acc, rg), h))}
+          onReset={() => {
+            setHistory((h) => regionsInPreset.reduce((acc, rg) => resetRegion(acc, rg), h));
+            setPoints((cur) => cur.filter((p) => p.procedureId !== preset.id));
+          }}
           onFocusRegion={setHighlight}
+          points={points.filter((p) => p.procedureId === preset.id)}
+          selectedPointId={selectedPoint}
+          placing={placing}
+          onTogglePlacing={() => setPlacing((v) => !v)}
+          onSelectPoint={setSelectedPoint}
+          onUpdatePoint={(id, patch) => setPoints((cur) => cur.map((p) => (p.id === id ? { ...p, ...patch } : p)))}
+          onRemovePoint={(id) => {
+            setPoints((cur) => cur.filter((p) => p.id !== id));
+            setSelectedPoint((cur) => (cur === id ? null : cur));
+          }}
         />
       </div>
 
@@ -425,6 +492,9 @@ export function SimulatorPage() {
               setSculptData(v.sculpt ?? null);
               setSculptNonce((n) => n + 1);
               setSavedRevision(-1);
+              setPoints([]); // os pontos da versão já estão dentro da modelagem salva
+              setSelectedPoint(null);
+              setSavedPoints('[]');
               toast.ok(`Versão “${v.name}” carregada.`);
             }}
           />
@@ -490,6 +560,17 @@ export function SimulatorPage() {
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            aria-pressed={heatmap}
+            onClick={() => setHeatmap((v) => !v)}
+            title="Mapa de alterações: mostra, em cores, o quanto cada ponto da pele saiu do lugar"
+            className={cn('inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium', heatmap ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle')}
+          >
+            <Thermometer className="size-4" aria-hidden />
+            <span className="hidden lg:inline">Mapa de alterações</span>
+            <span className="sr-only lg:hidden">Mapa de alterações</span>
+          </button>
           <button type="button" aria-pressed={showRegions} onClick={() => setShowRegions((v) => !v)} title="Mostrar regiões" className={cn('rounded-md p-1.5', showRegions ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle')}>
             <Layers className="size-4" aria-hidden />
             <span className="sr-only">Mostrar regiões</span>
@@ -535,6 +616,7 @@ export function SimulatorPage() {
             });
             setSavedParams(JSON.stringify(history.committed));
             setSavedRevision(sculptState.revision);
+            setSavedPoints(pointsKey);
             setSaving(false);
             toast.ok('Versão salva.');
           } catch (e) {

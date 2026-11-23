@@ -7,6 +7,9 @@ import { DEFAULT_APPEARANCE, irisColor, skinColor, type Appearance } from './app
 import { BrowsAndLashes, Eyes, Hair } from './FaceExtras';
 import { HairStrands } from './HairStrandsView';
 import { distanceForZone, zoneBounds } from './zone';
+import { headDisplacement } from './hairDeform';
+import { fillHeatColors } from './heat';
+import { pointsLayer, type AppPoint } from './points';
 import { resolveStyle, type DetectedHair, type HairModelId } from './hairStyles';
 import type { BrushParams } from './sculpt';
 import { createSculptRuntime, type SculptRuntime, type SculptState } from './sculptRuntime';
@@ -82,6 +85,17 @@ interface Props {
   viewNonce: number;
   /** Zona do procedimento escolhido: a câmera se aproxima dela (muda a cada escolha, mesmo repetida). */
   focus?: { regions: FaceRegion[]; nonce: number } | null;
+  /** Pontos de aplicação (cada um vira um volume suave dentro da zona do procedimento). */
+  points?: AppPoint[];
+  selectedPointId?: string | null;
+  /** Regiões em que se está colocando um ponto (null = não está colocando). */
+  placing?: FaceRegion[] | null;
+  /** Mapa de alterações: cor pelo quanto a pele saiu do lugar (mm). */
+  heatmap?: boolean;
+  /** Posição do novo ponto; null quando o toque caiu fora da zona. */
+  onPlacePoint?: (pos: [number, number, number] | null) => void;
+  onMovePoint?: (id: string, pos: [number, number, number]) => void;
+  onSelectPoint?: (id: string) => void;
   onRegionPick: (region: FaceRegion) => void;
   onLoaded?: (info: ModelInfo) => void;
   /** Modo modelar: arrastar sobre o rosto (mouse, caneta, dedo) chama estes callbacks em vez de girar a câmera. */
@@ -164,6 +178,13 @@ function FaceModel({
   sculptNonce,
   onSculptChange,
   appearance,
+  points,
+  selectedPointId,
+  placing,
+  heatmap,
+  onPlacePoint,
+  onMovePoint,
+  onSelectPoint,
   shared,
 }: Props & { shared: React.RefObject<Shared> }) {
   const look = appearance ?? DEFAULT_APPEARANCE;
@@ -221,6 +242,7 @@ function FaceModel({
     m.morphTargetInfluences = new Array(Object.keys(m.morphTargetDictionary).length).fill(0);
     m.updateMorphTargets();
     m.userData.textured = !!photoMap;
+    m.userData.photoMap = photoMap;
     const extras = (src.userData ?? {}) as {
       kind?: ModelInfo['kind'];
       notice?: string;
@@ -325,6 +347,7 @@ function FaceModel({
 
   // Destaque de região por cor de vértice.
   useEffect(() => {
+    if (heatmap) return; // no mapa de alterações, as cores vêm do deslocamento
     const color = mesh.geometry.getAttribute('color') as THREE.BufferAttribute;
     const base = new THREE.Color(mesh.userData.textured ? '#ffffff' : skinHex);
     const c = new THREE.Color();
@@ -347,7 +370,80 @@ function FaceModel({
     }
     color.needsUpdate = true;
     invalidate();
-  }, [mesh, regionAttrs, highlight, hover, showRegions, skinHex, invalidate]);
+  }, [mesh, regionAttrs, highlight, hover, showRegions, skinHex, heatmap, invalidate]);
+
+  // Mapa de alterações: tira a textura e pinta cada ponto pelo deslocamento (sliders + pincel + pontos), em mm
+  useEffect(() => {
+    if (!heatmap) return;
+    const mat = mesh.material as THREE.MeshPhysicalMaterial;
+    const photo = mesh.userData.photoMap as THREE.Texture | null;
+    const color = mesh.geometry.getAttribute('color') as THREE.BufferAttribute;
+    const disp = new Float32Array(color.count * 3);
+    const out = color.array as Float32Array;
+    let lastKey = '';
+    mat.map = null;
+    mat.needsUpdate = true;
+    const sync = (original: boolean) => {
+      const sc = (mesh.geometry.getAttribute('aSculpt') as THREE.BufferAttribute | undefined)?.version ?? 0;
+      const key = `${original ? 1 : 0}|${sc}|${(mesh.morphTargetInfluences ?? []).join(',')}`;
+      if (key === lastKey) return;
+      lastKey = key;
+      headDisplacement(mesh, original, disp);
+      fillHeatColors(disp, out);
+      color.needsUpdate = true;
+    };
+    mesh.userData.heatSync = sync;
+    // exportações (PNG e PDF) saem com a textura: pausa o mapa durante o desenho
+    mesh.userData.heatPause = () => {
+      mat.map = photo;
+      mat.needsUpdate = true;
+      return () => {
+        mat.map = null;
+        mat.needsUpdate = true;
+      };
+    };
+    sync(false);
+    invalidate();
+    return () => {
+      delete mesh.userData.heatSync;
+      delete mesh.userData.heatPause;
+      mat.map = photo;
+      mat.needsUpdate = true;
+      invalidate();
+    };
+  }, [mesh, heatmap, invalidate]);
+
+  // Pontos de aplicação: a camada de volumes dos pontos, presa à zona do procedimento de cada um
+  const zoneCache = useRef(new Map<string, Float32Array>());
+  useEffect(() => {
+    zoneCache.current.clear();
+  }, [mesh]);
+  useEffect(() => {
+    if (!runtime) return;
+    const pos = mesh.geometry.getAttribute('position');
+    const nor = mesh.geometry.getAttribute('normal');
+    const list = points ?? [];
+    if (list.length === 0) {
+      runtime.setLayer(null);
+      return;
+    }
+    const zoneOf = (regions: FaceRegion[]) => {
+      const key = regions.join(',');
+      let w = zoneCache.current.get(key) ?? null;
+      if (!w) {
+        const attrs = regions.map((r) => regionAttrs.get(r)).filter((a): a is THREE.BufferAttribute => !!a);
+        if (attrs.length === 0) return null;
+        w = new Float32Array(pos.count);
+        for (let v = 0; v < pos.count; v++) for (const a of attrs) w[v] = Math.max(w[v]!, a.getX(v));
+        zoneCache.current.set(key, w);
+      }
+      return w;
+    };
+    const layer = new Float32Array(pos.count * 3);
+    pointsLayer(pos.array as ArrayLike<number>, nor.array as ArrayLike<number>, (p) => zoneOf(p.regions), list, layer);
+    runtime.setLayer(layer);
+    invalidate();
+  }, [points, runtime, mesh, regionAttrs, invalidate]);
 
   useEffect(() => {
     if (!sculpt) setHover(null);
@@ -363,31 +459,47 @@ function FaceModel({
   // (OrbitControls) ver o clique, decidimos se ele caiu no rosto e a desligamos só nesse caso.
   const camera = useThree((s) => s.camera);
   const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
+  const markersRef = useRef<THREE.Group>(null);
+  const hasPoints = (points?.length ?? 0) > 0;
   useEffect(() => {
     const el = gl.domElement;
     if (controls) controls.enabled = true;
-    if (!sculpt && !brushOn) {
+    if (!sculpt && !brushOn && !placing && !hasPoints) {
       el.style.cursor = 'grab';
       return;
     }
     const ray = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
-    const overFace = (ev: PointerEvent) => {
+    const aim = (ev: PointerEvent) => {
       const rect = el.getBoundingClientRect();
       ndc.set(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
       ray.setFromCamera(ndc, camera);
+    };
+    const overFace = (ev: PointerEvent) => {
+      aim(ev);
       const hit = ray.intersectObject(mesh, false)[0];
       // Só conta como "rosto" onde existe região modelável; testa/orelha continuam girando.
       return !!hit?.face && (brushOn || regionAt(hit.face) !== null);
     };
+    const overMesh = (ev: PointerEvent) => {
+      aim(ev);
+      return ray.intersectObject(mesh, false).length > 0;
+    };
+    const overMarker = (ev: PointerEvent) => {
+      if (!markersRef.current) return false;
+      aim(ev);
+      return ray.intersectObject(markersRef.current, true).length > 0;
+    };
+    const claims = (ev: PointerEvent) =>
+      overMarker(ev) || (!!placing && overMesh(ev)) || ((!!sculpt || brushOn) && overFace(ev));
     const down = (ev: PointerEvent) => {
-      if (controls) controls.enabled = !overFace(ev);
+      if (controls) controls.enabled = !claims(ev);
     };
     const release = () => {
       if (controls) controls.enabled = true;
     };
     const move = (ev: PointerEvent) => {
-      if (ev.buttons === 0) el.style.cursor = overFace(ev) ? 'crosshair' : 'grab';
+      if (ev.buttons === 0) el.style.cursor = claims(ev) ? 'crosshair' : 'grab';
     };
     el.addEventListener('pointerdown', down, true);
     el.addEventListener('pointerup', release);
@@ -403,7 +515,7 @@ function FaceModel({
     };
     // regionAt só lê regionAttrs, que muda junto com mesh
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sculpt, brushOn, gl, camera, controls, mesh]);
+  }, [sculpt, brushOn, placing, hasPoints, gl, camera, controls, mesh]);
 
   useEffect(() => {
     (mesh.material as THREE.MeshPhysicalMaterial).wireframe = wireframe;
@@ -493,6 +605,50 @@ function FaceModel({
     invalidate();
   }
 
+  /** Coloca um ponto de aplicação onde o toque caiu, se for dentro da zona do procedimento. */
+  function placeDown(e: ThreeEvent<PointerEvent>) {
+    if (!placing || !e.face || e.nativeEvent.button > 0) return;
+    e.stopPropagation();
+    let w = 0;
+    for (const r of placing) {
+      const a = regionAttrs.get(r);
+      if (a) w = Math.max(w, (a.getX(e.face.a) + a.getX(e.face.b) + a.getX(e.face.c)) / 3);
+    }
+    onPlacePoint?.(w >= 0.15 ? [e.point.x, e.point.y, e.point.z] : null);
+  }
+
+  /** Arrasta um ponto de aplicação sobre a superfície. */
+  function markerDown(e: ThreeEvent<PointerEvent>, id: string) {
+    if (placing || e.nativeEvent.button > 0) return;
+    e.stopPropagation();
+    onSelectPoint?.(id);
+    const el = gl.domElement;
+    const pid = e.nativeEvent.pointerId;
+    el.setPointerCapture(pid);
+    dragging.current = true;
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== pid) return;
+      const rect = el.getBoundingClientRect();
+      ndc.set(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
+      ray.setFromCamera(ndc, camera);
+      const hit = ray.intersectObject(mesh, false)[0];
+      if (hit) onMovePoint?.(id, [hit.point.x, hit.point.y, hit.point.z]);
+    };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== pid) return;
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      if (el.hasPointerCapture(pid)) el.releasePointerCapture(pid);
+      dragging.current = false;
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  }
+
   function brushDown(e: ThreeEvent<PointerEvent>) {
     const b = brushRef.current;
     if (!b || !runtime || !e.face || e.nativeEvent.button > 0) return;
@@ -559,7 +715,7 @@ function FaceModel({
       <primitive
         object={mesh}
         onClick={pick}
-        onPointerDown={brushOn ? brushDown : sculptDown}
+        onPointerDown={placing ? placeDown : brushOn ? brushDown : sculptDown}
         onPointerMove={brushOn ? brushHover : sculptHover}
         onPointerOut={() => {
           if (dragging.current) return;
@@ -574,6 +730,24 @@ function FaceModel({
         <ringGeometry args={[0.9, 1, 56]} />
         <meshBasicMaterial ref={ringMaterial} color="#0f8f89" transparent opacity={0.95} depthTest={false} side={THREE.DoubleSide} />
       </mesh>
+      <group ref={markersRef} name="point-markers">
+        {(points ?? []).flatMap((p) => {
+          const sel = p.id === selectedPointId;
+          const items = [{ key: p.id, pos: p.pos, ghost: false }];
+          if (p.mirror) items.push({ key: `${p.id}-m`, pos: [-p.pos[0], p.pos[1], p.pos[2]] as [number, number, number], ghost: true });
+          return items.map((it) => (
+            <mesh
+              key={it.key}
+              position={it.pos}
+              renderOrder={11}
+              onPointerDown={it.ghost ? undefined : (e) => markerDown(e, p.id)}
+            >
+              <sphereGeometry args={[sel ? 0.0034 : 0.0026, 16, 12]} />
+              <meshBasicMaterial color={sel ? '#f59e0b' : '#0f8f89'} transparent opacity={it.ghost ? 0.55 : 1} />
+            </mesh>
+          ));
+        })}
+      </group>
       {eyes && <Eyes eyes={eyes} irisHex={irisColor(look)} />}
       {eyes && <BrowsAndLashes head={mesh} eyes={eyes} browHex={look.browHex} />}
       {textured && strandsColor && look.hairCap && hairCoverage && (
@@ -583,7 +757,7 @@ function FaceModel({
           hex={strandsColor}
         />
       )}
-      {textured && strandsColor && strandStyle && (
+      {textured && strandsColor && strandStyle && !heatmap && (
         <HairStrands
           head={mesh}
           color={look.hairColorHex ?? strandsColor}
@@ -656,6 +830,7 @@ function Rig({
     const src = original ? zeros : current;
     for (let i = 0; i < src.length; i++) mesh.morphTargetInfluences[i] = src[i]!;
     (mesh.userData.hairSync as ((original: boolean) => void) | undefined)?.(original); // o cabelo acompanha a cabeça
+    (mesh.userData.heatSync as ((original: boolean) => void) | undefined)?.(original); // mapa de alterações
   };
 
   useEffect(() => {
@@ -678,6 +853,10 @@ function Rig({
           material.color.copy(shared.current.mesh?.userData.textured ? new THREE.Color('#ffffff') : shared.current.skin);
           material.needsUpdate = true;
         }
+        const resumeHeat = (shared.current.mesh?.userData.heatPause as (() => () => void) | undefined)?.();
+        const markersObj = scene.getObjectByName('point-markers');
+        const markersWas = markersObj?.visible ?? false;
+        if (markersObj) markersObj.visible = false;
         const ringObj = scene.getObjectByName('brush-ring');
         const ringWas = ringObj?.visible ?? false;
         if (ringObj) ringObj.visible = false;
@@ -688,6 +867,8 @@ function Rig({
         gl.render(scene, cam);
         const url = gl.domElement.toDataURL('image/png');
         setInfluences(false);
+        resumeHeat?.();
+        if (markersObj) markersObj.visible = markersWas;
         if (ringObj) ringObj.visible = ringWas;
         if (material && prev) {
           material.vertexColors = prev.vertexColors;

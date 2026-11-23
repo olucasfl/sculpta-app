@@ -2,6 +2,7 @@ import type { ProcedurePreset, SliderId } from '@sim/contracts';
 import { SLIDERS } from '@sim/contracts';
 import { Button } from '../../components/ui/Button';
 import { cn } from '../../lib/format';
+import { isBilateral, POINT_MM_MAX, POINT_RADIUS_MM, type AppPoint } from './points';
 import { isShapeActive, shapeMm, SHAPES } from './procedureShapes';
 import { SliderControl } from './SliderControl';
 
@@ -19,6 +20,14 @@ interface Props {
   onApplyShape: (values: Partial<Record<SliderId, number>>) => void;
   onReset: () => void;
   onFocusRegion: (region: (typeof SLIDERS)[number]['region']) => void;
+  /** Pontos de aplicação deste procedimento. */
+  points: AppPoint[];
+  selectedPointId: string | null;
+  placing: boolean;
+  onTogglePlacing: () => void;
+  onSelectPoint: (id: string) => void;
+  onUpdatePoint: (id: string, patch: Partial<AppPoint>) => void;
+  onRemovePoint: (id: string) => void;
 }
 
 const fmt = (mm: number) => mm.toFixed(1).replace('.', ',');
@@ -27,7 +36,26 @@ const fmt = (mm: number) => mm.toFixed(1).replace('.', ',');
  * Painel de UM procedimento: formatos prontos (com o deslocamento aproximado em mm), um controle por ajuste, cada um
  * em mm com o limite da simulação, e aviso quando se chega perto dele.
  */
-export function ProcedurePanel({ preset, values, maxMm, available, hasChanges, disabled, onChange, onCommit, onApplyShape, onReset, onFocusRegion }: Props) {
+export function ProcedurePanel({
+  preset,
+  values,
+  maxMm,
+  available,
+  hasChanges,
+  disabled,
+  onChange,
+  onCommit,
+  onApplyShape,
+  onReset,
+  onFocusRegion,
+  points,
+  selectedPointId,
+  placing,
+  onTogglePlacing,
+  onSelectPoint,
+  onUpdatePoint,
+  onRemovePoint,
+}: Props) {
   const sliders = SLIDERS.filter((x) => (preset.sliders as readonly string[]).includes(x.id));
   const ids = sliders.map((s) => s.id as SliderId);
   const shapes = SHAPES[preset.id] ?? [];
@@ -91,6 +119,76 @@ export function ProcedurePanel({ preset, values, maxMm, available, hasChanges, d
                 onFocusRegion={() => onFocusRegion(x.region)}
               />
             ))}
+          </div>
+          <div className="mt-4 border-t border-line pt-3" aria-label="Pontos de aplicação">
+            <div className="mb-1 text-sm font-medium">Pontos de aplicação</div>
+            <p className="mb-2 text-xs text-muted">
+              Marque onde aplicar. Cada ponto sobe a pele só dentro da área destacada, com a quantidade e o alcance que você escolher.
+            </p>
+            <Button size="sm" variant={placing ? 'primary' : 'secondary'} disabled={disabled} onClick={onTogglePlacing}>
+              {placing ? 'Toque na área destacada (cancelar)' : 'Adicionar ponto'}
+            </Button>
+            {points.length > 0 && (
+              <ul className="mt-3 flex flex-col gap-2">
+                {points.map((p, i) => {
+                  const on = p.id === selectedPointId;
+                  return (
+                    <li key={p.id} className={cn('rounded-lg border p-2', on ? 'border-accent bg-accent-soft/40' : 'border-line')}>
+                      <button type="button" onClick={() => onSelectPoint(p.id)} aria-pressed={on} className="flex w-full items-center justify-between text-left text-sm font-medium">
+                        Ponto {i + 1}
+                        <span className="text-xs font-normal text-muted tabular-nums">
+                          {fmt(p.mm)} mm · alcance {p.radius} mm
+                        </span>
+                      </button>
+                      {on && (
+                        <div className="mt-2 flex flex-col gap-2">
+                          <label className="flex flex-col gap-1 text-xs font-medium">
+                            <span className="flex justify-between">
+                              Quantidade <span className="font-normal tabular-nums text-muted">{fmt(p.mm)} mm</span>
+                            </span>
+                            <input
+                              type="range"
+                              min={0.1}
+                              max={POINT_MM_MAX}
+                              step={0.1}
+                              value={p.mm}
+                              disabled={disabled}
+                              onChange={(e) => onUpdatePoint(p.id, { mm: Number(e.target.value) })}
+                              className="h-2 w-full cursor-pointer accent-[var(--color-accent)]"
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs font-medium">
+                            <span className="flex justify-between">
+                              Alcance <span className="font-normal tabular-nums text-muted">{p.radius} mm</span>
+                            </span>
+                            <input
+                              type="range"
+                              min={POINT_RADIUS_MM.min}
+                              max={POINT_RADIUS_MM.max}
+                              step={1}
+                              value={p.radius}
+                              disabled={disabled}
+                              onChange={(e) => onUpdatePoint(p.id, { radius: Number(e.target.value) })}
+                              className="h-2 w-full cursor-pointer accent-[var(--color-accent)]"
+                            />
+                          </label>
+                          {isBilateral(p.regions) && (
+                            <label className="flex items-center gap-2 text-xs">
+                              <input type="checkbox" checked={p.mirror} disabled={disabled} onChange={(e) => onUpdatePoint(p.id, { mirror: e.target.checked })} className="size-4 accent-[var(--color-primary-600)]" />
+                              Espelhar no outro lado
+                            </label>
+                          )}
+                          <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onRemovePoint(p.id)}>
+                            Remover ponto
+                          </Button>
+                          <p className="text-xs text-muted">Arraste a bolinha sobre o rosto para mover o ponto.</p>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
           <p className="mt-3 text-xs text-muted">
             Maior alteração neste procedimento: <span className="font-medium text-ink tabular-nums">{fmt(biggest)} mm</span>. O limite de cada controle é o fim da
