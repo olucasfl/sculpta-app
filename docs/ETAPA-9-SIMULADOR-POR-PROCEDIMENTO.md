@@ -135,3 +135,13 @@ Um painel "Comparar" com: **Cortina**, **Alternar** (segurar para ver o antes), 
 3. **Linguagem dos procedimentos:** usar os nomes de consultório (preenchimento labial, bigode chinês, projeção de mento) ou nomes simples para a paciente?
 4. **Rugas da toxina:** vale criar a camada de rugas agora (mais trabalho e mais risco de parecer falso) ou entregar só o masseter primeiro?
 5. **Relatório:** o PDF deve listar cada procedimento simulado com a intensidade e a faixa de resultado?
+
+## 12. Etapa 1 entregue (23/11/2026): pincel com sentido e controle
+
+- **Nomes e direção:** "Empurrar/Puxar" viraram **Adicionar volume** (a pele sobe, para fora, como um preenchimento) e **Reduzir volume** (afunda, para dentro). O anel do pincel muda de cor: verde-azulado adiciona, âmbar reduz, azul suaviza, cinza apaga.
+- **Teto por traço:** cada traço desloca a pele **no máximo** o valor de "Quanto por traço" (de 0,1 a 3 mm no centro do pincel), por mais que o mouse demore ou pare. Antes, parar o mouse empilhava toques e o efeito saía exagerado. Para mais, passa-se de novo (cada traço soma ao anterior, cada um com o seu teto). Desfazer continua por traço.
+- **Medidas em mm:** tamanho do pincel de 4 a 40 mm; "Quanto por traço" em mm; leitura "Maior alteração na pele: X de 8 mm", com barra que fica âmbar perto do limite. O limite por ponto caiu de 12 para 8 mm.
+- **Padrão mais fino:** pincel de 12 mm e 0,9 mm por traço.
+- Quatro testes novos (direção, teto por traço, soma entre traços, força mínima); e2e do pincel passou.
+
+**Limites:** o pincel ainda age em qualquer ponto do rosto; a trava por zona e os procedimentos entram nas etapas 2 a 5. Os 8 mm e os 3 mm por traço são valores de interface, não regra clínica; precisam de validação por profissional.

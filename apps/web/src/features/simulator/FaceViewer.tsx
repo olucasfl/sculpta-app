@@ -172,6 +172,13 @@ function FaceModel({
   brushRef.current = brush;
   const brushOn = !!brush;
   const ring = useRef<THREE.Mesh>(null);
+  const ringMaterial = useRef<THREE.MeshBasicMaterial>(null);
+  // a cor do anel diz o que o pincel faz: verde-azulado adiciona, âmbar reduz, azul suaviza, cinza apaga
+  useEffect(() => {
+    const colors = { add: '#0f8f89', reduce: '#d97706', smooth: '#3b82f6', erase: '#6b7280' } as const;
+    ringMaterial.current?.color.set(brush ? colors[brush.tool] : colors.add);
+    invalidate();
+  }, [brush?.tool]); // eslint-disable-line react-hooks/exhaustive-deps
   const lastStamp = useRef<THREE.Vector3 | null>(null);
 
   const { mesh, eyes, regionAttrs, runtime, textured, strandsColor, eyeLevel, hairCoverage, detectedHair } = useMemo(() => {
@@ -554,7 +561,7 @@ function FaceModel({
       />
       <mesh ref={ring} name="brush-ring" visible={false} renderOrder={10}>
         <ringGeometry args={[0.9, 1, 56]} />
-        <meshBasicMaterial color="#0f8f89" transparent opacity={0.95} depthTest={false} side={THREE.DoubleSide} />
+        <meshBasicMaterial ref={ringMaterial} color="#0f8f89" transparent opacity={0.95} depthTest={false} side={THREE.DoubleSide} />
       </mesh>
       {eyes && <Eyes eyes={eyes} irisHex={irisColor(look)} />}
       {eyes && <BrowsAndLashes head={mesh} eyes={eyes} browHex={look.browHex} />}

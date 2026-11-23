@@ -6,6 +6,7 @@ import {
   encodeOffsets,
   falloff,
   MAX_OFFSET,
+  STROKE_DEPTH,
   StrokeHistory,
   updateNormalDeltas,
   type BrushParams,
@@ -33,7 +34,7 @@ function grid() {
   return buildSculptMesh(positions, normals, indices);
 }
 
-const base: BrushParams = { tool: 'push', radius: 0.025, strength: 1, pressure: 1, symmetry: false };
+const base: BrushParams = { tool: 'add', radius: 0.025, strength: 1, pressure: 1, symmetry: false };
 const center = 12; // (2,2)
 
 describe('pincel de escultura', () => {
@@ -53,7 +54,7 @@ describe('pincel de escultura', () => {
     expect(off[center * 3 + 2]).toBeGreaterThan(off[(center + 1) * 3 + 2]!);
     expect(off[center * 3]).toBe(0); // normal é +z: x e y não mudam
     const pull = new Float32Array(25 * 3);
-    applyBrush(m, pull, [0, 0, 0], { ...base, tool: 'pull' });
+    applyBrush(m, pull, [0, 0, 0], { ...base, tool: 'reduce' });
     expect(pull[center * 3 + 2]).toBeLessThan(0);
   });
 
@@ -146,5 +147,46 @@ describe('pincel de escultura', () => {
     // Malha de outro tamanho ou dado corrompido: recusa.
     expect(() => decodeOffsets(data, 26)).toThrow();
     expect(() => decodeOffsets({ ...data, d: data.d.slice(0, 4) }, 25)).toThrow();
+  });
+
+  it('adicionar volume sobe a pele (para fora) e reduzir afunda (para dentro)', () => {
+    const m = grid(); // normais para +z = para fora
+    const up = new Float32Array(75);
+    const down = new Float32Array(75);
+    applyBrush(m, up, [0, 0, 0], { ...base, tool: 'add' });
+    applyBrush(m, down, [0, 0, 0], { ...base, tool: 'reduce' });
+    expect(up[center * 3 + 2]).toBeGreaterThan(0);
+    expect(down[center * 3 + 2]).toBeLessThan(0);
+  });
+
+  it('um traço tem teto: muitos toques no mesmo ponto não passam da profundidade do traço', () => {
+    const m = grid();
+    const off = new Float32Array(75);
+    const stroke = new Float32Array(25);
+    const params = { ...base, strength: 0.5 };
+    for (let k = 0; k < 200; k++) applyBrush(m, off, [0, 0, 0], params, undefined, stroke);
+    const cap = STROKE_DEPTH * 0.5;
+    expect(off[center * 3 + 2]).toBeLessThanOrEqual(cap + 1e-9);
+    expect(off[center * 3 + 2]).toBeGreaterThan(cap * 0.95); // chega perto do teto
+  });
+
+  it('um novo traço soma ao anterior (para ir além é só passar de novo)', () => {
+    const m = grid();
+    const off = new Float32Array(75);
+    const params = { ...base, strength: 0.5 };
+    let stroke = new Float32Array(25);
+    for (let k = 0; k < 50; k++) applyBrush(m, off, [0, 0, 0], params, undefined, stroke);
+    const first = off[center * 3 + 2]!;
+    stroke = new Float32Array(25); // soltou o mouse
+    for (let k = 0; k < 50; k++) applyBrush(m, off, [0, 0, 0], params, undefined, stroke);
+    expect(off[center * 3 + 2]).toBeGreaterThan(first * 1.8);
+  });
+
+  it('o teto vale para o mínimo: força mínima move menos de 0,2 mm', () => {
+    const m = grid();
+    const off = new Float32Array(75);
+    const stroke = new Float32Array(25);
+    for (let k = 0; k < 100; k++) applyBrush(m, off, [0, 0, 0], { ...base, strength: 0.03 }, undefined, stroke);
+    expect(off[center * 3 + 2]).toBeLessThan(0.0002);
   });
 });

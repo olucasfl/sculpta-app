@@ -17,6 +17,8 @@ export interface SculptState {
   hasSculpt: boolean;
   /** Muda a cada traço, desfazer, refazer ou limpar (não ao carregar uma versão). */
   revision: number;
+  /** Maior deslocamento da pele hoje, em milímetros (o limite por vértice é `MAX_OFFSET`). */
+  maxMm: number;
 }
 
 export interface SculptRuntime {
@@ -64,11 +66,23 @@ export function createSculptRuntime(
   const history = new StrokeHistory();
   let revision = 0;
 
+  const strokeAcc = new Float32Array(n);
+  const maxLength = () => {
+    let m = 0;
+    for (let v = 0; v < n; v++) m = Math.max(m, Math.hypot(offsets[v * 3]!, offsets[v * 3 + 1]!, offsets[v * 3 + 2]!));
+    return m;
+  };
   const hasAny = () => {
     for (let k = 0; k < offsets.length; k++) if (offsets[k] !== 0) return true;
     return false;
   };
-  const state = (): SculptState => ({ canUndo: history.canUndo, canRedo: history.canRedo, hasSculpt: hasAny(), revision });
+  const state = (): SculptState => ({
+    canUndo: history.canUndo,
+    canRedo: history.canRedo,
+    hasSculpt: hasAny(),
+    revision,
+    maxMm: Math.round(maxLength() * 10000) / 10,
+  });
   const touch = () => {
     aOffset.needsUpdate = true;
     aNormal.needsUpdate = true;
@@ -82,12 +96,13 @@ export function createSculptRuntime(
   return {
     vertexCount: n,
     stamp(point, params) {
-      const changed = applyBrush(mesh, offsets, [point.x, point.y, point.z], params, (vertices) => history.touch(offsets, vertices));
+      const changed = applyBrush(mesh, offsets, [point.x, point.y, point.z], params, (vertices) => history.touch(offsets, vertices), strokeAcc);
       if (changed.length === 0) return;
       refreshNormals(changed);
       touch();
     },
     endStroke() {
+      strokeAcc.fill(0); // o próximo traço tem o seu próprio teto
       history.endStroke();
       revision++;
       emit();

@@ -1,16 +1,16 @@
 import { ChevronsDown, ChevronsUp, Eraser, Redo2, Trash2, Undo2, Waves } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { cn } from '../../lib/format';
-import type { BrushParams, BrushTool } from './sculpt';
+import { MAX_OFFSET, STROKE_DEPTH, type BrushParams, type BrushTool } from './sculpt';
 import type { SculptState } from './sculptRuntime';
 
 export type BrushSettings = Omit<BrushParams, 'pressure'>;
 
-export const DEFAULT_BRUSH: BrushSettings = { tool: 'push', radius: 0.024, strength: 0.6, symmetry: true };
+export const DEFAULT_BRUSH: BrushSettings = { tool: 'add', radius: 0.012, strength: 0.3, symmetry: true };
 
 const TOOLS: { id: BrushTool; label: string; hint: string; icon: React.ReactNode }[] = [
-  { id: 'push', label: 'Empurrar', hint: 'Sobe a superfície (volume)', icon: <ChevronsUp className="size-4" aria-hidden /> },
-  { id: 'pull', label: 'Puxar', hint: 'Afunda a superfície', icon: <ChevronsDown className="size-4" aria-hidden /> },
+  { id: 'add', label: 'Adicionar volume', hint: 'Como um preenchimento: a pele sobe, para fora', icon: <ChevronsUp className="size-4" aria-hidden /> },
+  { id: 'reduce', label: 'Reduzir volume', hint: 'A pele afunda, para dentro', icon: <ChevronsDown className="size-4" aria-hidden /> },
   { id: 'smooth', label: 'Suavizar', hint: 'Alisa o que foi modelado', icon: <Waves className="size-4" aria-hidden /> },
   { id: 'erase', label: 'Apagar', hint: 'Desfaz o modelado pintando por cima', icon: <Eraser className="size-4" aria-hidden /> },
 ];
@@ -52,12 +52,12 @@ export function BrushPanel({ brush, onChange, state, onUndo, onRedo, onClear }: 
       <div className="mt-4 flex flex-col gap-3">
         <label className="flex flex-col gap-1 text-sm font-medium">
           <span className="flex justify-between">
-            Tamanho <span className="font-normal text-muted tabular-nums">{Math.round(brush.radius * 1000)}</span>
+            Tamanho do pincel <span className="font-normal text-muted tabular-nums">{Math.round(brush.radius * 1000)} mm</span>
           </span>
           <input
             type="range"
-            min={0.008}
-            max={0.06}
+            min={0.004}
+            max={0.04}
             step={0.001}
             value={brush.radius}
             onChange={(e) => onChange({ ...brush, radius: Number(e.target.value) })}
@@ -66,13 +66,13 @@ export function BrushPanel({ brush, onChange, state, onUndo, onRedo, onClear }: 
         </label>
         <label className="flex flex-col gap-1 text-sm font-medium">
           <span className="flex justify-between">
-            Força <span className="font-normal text-muted tabular-nums">{Math.round(brush.strength * 100)}%</span>
+            Quanto por traço <span className="font-normal text-muted tabular-nums">{(brush.strength * STROKE_DEPTH * 1000).toFixed(1)} mm</span>
           </span>
           <input
             type="range"
-            min={0.1}
+            min={0.03}
             max={1}
-            step={0.05}
+            step={0.01}
             value={brush.strength}
             onChange={(e) => onChange({ ...brush, strength: Number(e.target.value) })}
             className="h-2 w-full cursor-pointer accent-[var(--color-primary-600)]"
@@ -100,7 +100,23 @@ export function BrushPanel({ brush, onChange, state, onUndo, onRedo, onClear }: 
           Limpar escultura
         </Button>
       </div>
-      <p className="mt-3 text-xs text-muted">O que você modela com o pincel é guardado junto da versão salva. “Antes” mostra o rosto sem a escultura.</p>
+      <div className="mt-3" aria-label="Maior alteração">
+        <div className="flex justify-between text-xs">
+          <span className="text-muted">Maior alteração na pele</span>
+          <span className={cn('font-medium tabular-nums', state.maxMm > MAX_OFFSET * 800 ? 'text-amber-700' : 'text-ink')}>
+            {state.maxMm.toFixed(1)} de {(MAX_OFFSET * 1000).toFixed(0)} mm
+          </span>
+        </div>
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-subtle">
+          <div
+            className={cn('h-full rounded-full', state.maxMm > MAX_OFFSET * 800 ? 'bg-amber-500' : 'bg-primary-600')}
+            style={{ width: `${Math.min(100, (state.maxMm / (MAX_OFFSET * 1000)) * 100)}%` }}
+          />
+        </div>
+      </div>
+      <p className="mt-3 text-xs text-muted">
+        Cada traço adiciona ou reduz no máximo o valor de “Quanto por traço”, por mais que você demore. Para mais, passe de novo. O que você modela é guardado junto da versão salva; “Antes” mostra o rosto sem a escultura.
+      </p>
     </section>
   );
 }

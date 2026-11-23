@@ -110,7 +110,7 @@ export function SimulatorPage() {
   /** brush = pincel; regions = arrastar ajusta os sliders da região; rotate = só gira. */
   const [mode, setMode] = useState<'brush' | 'regions' | 'rotate'>('brush');
   const [brushSettings, setBrushSettings] = useState<BrushSettings>(DEFAULT_BRUSH);
-  const [sculptState, setSculptState] = useState<SculptState>({ canUndo: false, canRedo: false, hasSculpt: false, revision: 0 });
+  const [sculptState, setSculptState] = useState<SculptState>({ canUndo: false, canRedo: false, hasSculpt: false, revision: 0, maxMm: 0 });
   const [savedRevision, setSavedRevision] = useState(0);
   const [sculptData, setSculptData] = useState<SculptData | null>(null);
   const [sculptNonce, setSculptNonce] = useState(0);

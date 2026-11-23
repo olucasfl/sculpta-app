@@ -1,17 +1,21 @@
 /**
- * Motor do pincel de escultura (puro, sem three.js): empurra, puxa, suaviza e apaga deslocamentos por vértice.
+ * Motor do pincel de escultura (puro, sem three.js): adiciona volume, reduz volume, suaviza e apaga deslocamentos por vértice.
  * A malha base nunca é alterada: tudo fica em `offsets` (3 floats por vértice), que o visualizador aplica como um
  * morph target extra. Assim "antes" (sem deslocamentos) e "depois" convivem, e salvar uma versão guarda só os
  * vértices que mudaram (docs/GUIA-REFORMULACAO.md, 6.3).
  */
 
-export type BrushTool = 'push' | 'pull' | 'smooth' | 'erase';
+/**
+ * add = adiciona volume (a superfície sobe, para fora, como um preenchimento); reduce = reduz volume (afunda, para dentro).
+ * Os nomes antigos 'push' e 'pull' eram ambíguos: "empurrar" soa como ir para dentro, mas subia a pele.
+ */
+export type BrushTool = 'add' | 'reduce' | 'smooth' | 'erase';
 
 export interface BrushParams {
   tool: BrushTool;
   /** Raio em unidades do modelo (o rosto tem ~0,2). */
   radius: number;
-  /** 0 a 1. Escala o passo de cada aplicação. */
+  /** 0 a 1. Quanto cada TRAÇO pode deslocar a pele no centro do pincel: `strength` x 3 mm. */
   strength: number;
   /** Pressão da caneta (mouse e dedo usam 1). */
   pressure: number;
@@ -20,9 +24,11 @@ export interface BrushParams {
 }
 
 /** Deslocamento máximo por vértice (evita aberrações). Em unidades do modelo. */
-export const MAX_OFFSET = 0.012;
-/** Passo base de uma aplicação com força 1 e pressão 1. */
-const STEP = 0.0016;
+export const MAX_OFFSET = 0.008;
+/** Deslocamento máximo de UM traço no centro do pincel, com força 1 e pressão 1 (3 mm). */
+export const STROKE_DEPTH = 0.003;
+/** Fração do que falta até o teto do traço que cada toque aplica (3 a 4 toques chegam perto do teto). */
+const APPROACH = 0.45;
 /** Quantização ao salvar: 0,01 mm se a unidade for o metro. */
 const QUANT = 1e-5;
 
@@ -73,11 +79,14 @@ export function applyBrush(
   params: BrushParams,
   /** Chamado com os vértices que VÃO mudar, antes da mudança (para guardar o valor anterior e poder desfazer). */
   beforeChange?: (vertices: number[]) => void,
+  /** Quanto cada vértice já recebeu NESTE traço (com sinal, ao longo da normal). Zere ao soltar o mouse. */
+  stroke?: Float32Array,
 ): number[] {
   const changed = new Set<number>();
   const centers: [number, number, number][] = [[point[0], point[1], point[2]]];
   if (params.symmetry) centers.push([-point[0], point[1], point[2]]);
-  for (const c of centers) stamp(mesh, offsets, c, params, changed, beforeChange);
+  const acc = stroke ?? new Float32Array(mesh.positions.length / 3);
+  for (const c of centers) stamp(mesh, offsets, c, params, changed, acc, beforeChange);
   return [...changed];
 }
 
@@ -87,12 +96,13 @@ function stamp(
   c: [number, number, number],
   p: BrushParams,
   changed: Set<number>,
+  stroke: Float32Array,
   beforeChange?: (vertices: number[]) => void,
 ) {
   const { positions, normals, neighbors } = mesh;
   const n = positions.length / 3;
   const r2 = p.radius * p.radius;
-  const amount = STEP * p.strength * p.pressure;
+  const depth = STROKE_DEPTH * p.strength * p.pressure;
   const inside: number[] = [];
   const weights: number[] = [];
 
@@ -147,11 +157,20 @@ function stamp(
       offsets[i + 1] = offsets[i + 1]! * keep;
       offsets[i + 2] = offsets[i + 2]! * keep;
     } else {
-      const sign = p.tool === 'push' ? 1 : -1;
-      offsets[i] = offsets[i]! + normals[i]! * sign * amount * w;
-      offsets[i + 1] = offsets[i + 1]! + normals[i + 1]! * sign * amount * w;
-      offsets[i + 2] = offsets[i + 2]! + normals[i + 2]! * sign * amount * w;
-      clampOffset(offsets, i);
+      // Teto do traço: no máximo `depth` no centro, caindo até 0 na borda. Não depende de quantos toques nem de quanto
+      // o mouse demora (antes, parar o mouse empilhava toques e o efeito saía exagerado e imprevisível).
+      const sign = p.tool === 'add' ? 1 : -1;
+      const target = sign * depth * w;
+      const acc = stroke[v]!;
+      if (Math.abs(target) > Math.abs(acc) || Math.sign(target) !== Math.sign(acc)) {
+        const next = acc + (target - acc) * APPROACH;
+        const step = next - acc;
+        stroke[v] = next;
+        offsets[i] = offsets[i]! + normals[i]! * step;
+        offsets[i + 1] = offsets[i + 1]! + normals[i + 1]! * step;
+        offsets[i + 2] = offsets[i + 2]! + normals[i + 2]! * step;
+        clampOffset(offsets, i);
+      }
     }
     changed.add(v);
   });
