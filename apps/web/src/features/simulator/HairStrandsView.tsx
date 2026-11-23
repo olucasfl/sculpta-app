@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
-import { buildStrands, type PhotoImage } from './hairStrands';
+import { buildStrands, type PhotoImage, type StrandStyle } from './hairStrands';
 
 /** Lê a textura das fotos do modelo (reduzida a 512 px); sem textura legível (ex.: testes), devolve null. */
 function readPhoto(map: THREE.Texture | null | undefined): PhotoImage | null {
@@ -33,10 +33,13 @@ interface Props {
   /** Altura dos olhos e plano da frente do rosto (metros); sem eles, a franja não é limitada. */
   eyeY?: number;
   faceZ?: number;
+  style?: StrandStyle;
+  photoDirection?: boolean;
+  colorMix?: number;
 }
 
 /** Fios de cabelo sobre o couro cabeludo do modelo reconstruído; só nascem onde o `.glb` marca cabelo. */
-export function HairStrands({ head, color, density, length, eyeY, faceZ }: Props) {
+export function HairStrands({ head, color, density, length, eyeY, faceZ, style, photoDirection, colorMix }: Props) {
   const geometry = useMemo(() => {
     const g = head.geometry;
     const hairAttr = g.getAttribute('_hair') as THREE.BufferAttribute | undefined;
@@ -55,6 +58,9 @@ export function HairStrands({ head, color, density, length, eyeY, faceZ }: Props
       seed: 11,
       eyeY,
       faceZ,
+      style,
+      photoDirection,
+      colorMix,
       ...(photo && uvAttr ? { photo, uv: uvAttr.array, base: [b.r, b.g, b.b] as [number, number, number] } : {}),
     });
     if (s.strands === 0) return null;
@@ -69,7 +75,7 @@ export function HairStrands({ head, color, density, length, eyeY, faceZ }: Props
     out.setAttribute('position', new THREE.BufferAttribute(s.positions, 3));
     out.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     return out;
-  }, [head, color, density, length, eyeY, faceZ]);
+  }, [head, color, density, length, eyeY, faceZ, style, photoDirection, colorMix]);
 
   const material = useMemo(() => new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.92 }), []);
   useEffect(() => () => geometry?.dispose(), [geometry]);

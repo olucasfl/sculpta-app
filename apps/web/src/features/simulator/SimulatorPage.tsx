@@ -50,6 +50,7 @@ import { brushTargets, PIXELS_PER_UNIT } from './brush';
 import { FaceViewer, type CompareMode, type ModelInfo, type SculptHandlers, type ViewerHandle, type ViewName } from './FaceViewer';
 import { apply, commit, emptyHistory, redo, regionHasChanges, resetRegion, setLive, undo, type History } from './history';
 import { logExport, useSaveVersion, useSimulation } from './queries';
+import { HairPanel } from './HairPanel';
 import { AppearancePanel } from './AppearancePanel';
 import { loadAppearance, saveAppearance, type Appearance } from './appearance';
 import { BrushPanel, DEFAULT_BRUSH, type BrushSettings } from './BrushPanel';
@@ -382,36 +383,7 @@ export function SimulatorPage() {
             <p className="rounded-lg bg-subtle px-3 py-2 text-xs text-muted">
               Pele e olhos vêm das fotos deste paciente. O ajuste de aparência vale só para o modelo demonstrativo.
             </p>
-            <label className="flex min-h-11 items-center gap-2 text-sm font-medium">
-              <input
-                type="checkbox"
-                checked={appearance.hairCap}
-                onChange={(e) => setAppearance({ ...appearance, hairCap: e.target.checked })}
-                className="size-5 accent-[var(--color-primary-600)]"
-              />
-              Casca de cabelo por cima (experimental)
-            </label>
-            {appearance.hairCap && (
-              <label className="flex flex-col gap-1 text-sm font-medium">
-                Volume
-                <input type="range" min={0} max={1} step={0.01} value={appearance.hairVolume} onChange={(e) => setAppearance({ ...appearance, hairVolume: Number(e.target.value) })} className="h-2 w-full cursor-pointer accent-[var(--color-primary-600)]" />
-              </label>
-            )}
-            <label className="flex min-h-11 items-center gap-2 text-sm font-medium">
-              <input
-                type="checkbox"
-                checked={appearance.hairStrands}
-                onChange={(e) => setAppearance({ ...appearance, hairStrands: e.target.checked })}
-                className="size-5 accent-[var(--color-primary-600)]"
-              />
-              Fios finos por cima (experimental)
-            </label>
-            {appearance.hairStrands && (
-              <label className="flex flex-col gap-1 text-sm font-medium">
-                Comprimento dos fios
-                <input type="range" min={0} max={1} step={0.01} value={appearance.hairLength} onChange={(e) => setAppearance({ ...appearance, hairLength: Number(e.target.value) })} className="h-2 w-full cursor-pointer accent-[var(--color-primary-600)]" />
-              </label>
-            )}
+            <HairPanel value={appearance} onChange={setAppearance} detected={info.hairStyle} photoColor={info.hairColor} />
           </div>
         ) : (
           <AppearancePanel value={appearance} onChange={setAppearance} onFromPhoto={canWrite ? colorsFromFrontPhoto : undefined} photoBusy={photoBusy} photoAvailable={!!frontPhoto?.landmarks} />

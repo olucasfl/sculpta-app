@@ -143,3 +143,19 @@ Com as fotos de uma pessoa nova, a reconstrução foi recusada (`LOW_QUALITY`: "
 - **A orelha da pessoa nova ainda cai na trava** (o alinhamento escorrega para o pescoço quando o pescoço é da cor da pele). O resultado é seguro (orelha lisa), mas não é a orelha da pessoa. Falta um alinhamento que não dependa só de cor de pele.
 - A forma vem do ajuste de um modelo estatístico (FLAME) a 105 pontos por foto: o contorno do modelo bate com o da pele na foto (largura 259 px contra 256 px), mas a profundidade (nariz, queixo de perfil) é estimada, não medida. A fidelidade de um escaneamento só vem de um sensor de profundidade (app iOS, Etapa 8).
 - Mancha oval no pescoço de uma das vistas e o topo da cabeça um pouco mais claro que o cabelo real: ainda sem causa tratada.
+
+## 14. Cabelo em fios por padrão, lido da foto, com modelos para trocar (23/11/2026)
+
+**Pedido:** o cabelo vir por padrão parecido com o da pessoa (cor, comprimento, franja, cacho) e, se não ficar bom, poder escolher entre 5 modelos masculinos e 5 femininos, mudar o tamanho e a cor.
+
+**Pesquisa:** direção dos fios por tensor de estrutura/Gabor (clássico; o HairStep, CVPR 2023, mostra que ele só dá o eixo, não o sentido), brilho por Kajiya-Kay (Scheuermann, GDC 2004), segmentação de cabelo do MediaPipe (não usada: exigiria baixar modelo; a leitura por cor já resolve o caso comum). Não há código aberto pronto para três.js de fios a partir de foto, então a implementação é própria.
+
+**Worker (`app/face/hairstyle.py`):** na foto frontal, a cor do cabelo é amostrada logo acima da testa (pontos do MediaPipe), o fundo vem das bordas e a pele é calibrada nas bochechas; cabelo = pixel parecido com a raiz, que não é pele nem fundo e está ligado a ela. Saem, relativos à altura do rosto: `length` (até onde desce ao lado do rosto), `fringe`/`fringeDepth`, `volume`, `curl` (desordem da direção dos fios + volume), `color`. Vão em `extras.hairStyle` do `.glb`. Cabelo claro agora também entra na cobertura `_HAIR` (antes só o escuro).
+Script de conferência: `scripts/hair_style.py` (imprime o estilo de cada captura).
+
+**Simulador:**
+- Fios ligados por padrão em modelos com textura, no modo "Automático (da foto)": comprimentos por zona (alto, lateral, nuca), franja, cacho, volume, risca/penteado para trás, direção lida da textura das fotos e cor por fio.
+- Painel "Cabelo": automático, sem fios, 5 modelos masculinos e 5 femininos, tamanho (40% a 200%), quantidade de fios e cor (da foto, amostras, seletor).
+- Fios não entram na cabeça (elipsoide + cilindros do maxilar e do pescoço) e não caem na frente do rosto; a franja só cobre a testa.
+
+**Limites:** é uma representação visual de fios (linhas finas), não o penteado real; cacheado e comprido são aproximações; não há ombros, então cabelo muito comprido cai reto atrás do pescoço; só 2 pessoas (ambas de cabelo curto e escuro) foram usadas na calibração do detector; cabelo da cor da parede, boné ou roupa da cor do cabelo podem enganar a leitura (por isso existem os modelos para trocar). Reconstruções antigas não têm `hairStyle`; é preciso refazer a captura (ou reprocessar) para ler o cabelo.

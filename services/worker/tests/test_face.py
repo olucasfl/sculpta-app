@@ -213,3 +213,43 @@ def test_perfil_nao_vira_para_o_lado_errado_mesmo_com_pontos_ruins():
     assert 0 <= by["LEFT_90"].rot[0] <= 110 and -110 <= by["RIGHT_90"].rot[0] <= 0
     assert 40 < by["LEFT_90"].rot[0] < 100 and -100 < by["RIGHT_90"].rot[0] < -40
     assert max(e[0] for e in errors.values()) < 0.05  # nenhuma vista fica fora (antes: 28%)
+
+
+def _fake_portrait(long_hair: bool):
+    """Retrato sintético: parede clara, rosto cor de pele e cabelo escuro (curto ou até abaixo do queixo)."""
+    import cv2
+
+    from app.face import hairstyle as hs
+
+    img = np.full((480, 480, 3), (225, 225, 220), np.uint8)
+    skin = (110, 150, 200)
+    hair = (25, 25, 30)
+    cv2.ellipse(img, (240, 250), (80, 105), 0, 0, 360, skin, -1)  # rosto
+    top = np.array([[140, 150], [340, 150], [340, 205], [140, 205]])
+    cv2.ellipse(img, (240, 175), (95, 85), 0, 180, 360, hair, -1)  # calota
+    if long_hair:
+        cv2.rectangle(img, (140, 175), (162, 400), hair, -1)
+        cv2.rectangle(img, (318, 175), (340, 400), hair, -1)
+    del top
+    lm = np.zeros((478, 2))
+    lm[hs.TOP] = (240, 150)
+    lm[hs.CHIN] = (240, 355)
+    lm[hs.CHEEK_L] = (165, 250)
+    lm[hs.CHEEK_R] = (315, 250)
+    lm[hs.EYE_L] = (205, 225)
+    lm[hs.EYE_R] = (275, 225)
+    lm[hs.BROW_L] = (205, 205)
+    lm[hs.BROW_R] = (275, 205)
+    for i in hs.SKIN_SAMPLES:
+        lm[i] = (225 + (i % 7) * 4, 260 + (i % 5) * 4)
+    return img, lm
+
+
+def test_estilo_do_cabelo_lido_na_foto_curto_e_comprido():
+    from app.face import hairstyle
+
+    short = hairstyle.detect_style(*_fake_portrait(False))
+    long_ = hairstyle.detect_style(*_fake_portrait(True))
+    assert short["hasHair"] and long_["hasHair"]
+    assert short["length"] < 0.3 < 0.7 < long_["length"]
+    assert short["color"] < "#404040"  # cabelo escuro

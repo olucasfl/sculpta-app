@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 
 from .. import pipeline
+from . import hairstyle
 from . import bases, fit, glb, hair, silhouette, texture
 
 # A silhueta de perfil melhora o erro de borda em ~1,5 mm, mas muda o formato do rosto em relação à primeira versão com
@@ -96,6 +97,12 @@ class FlameReconstructor:
         n0 = r["n_original"]
         eye_ids = np.concatenate([np.asarray(self.masks[k], int) for k in ("left_eyeball", "right_eyeball")])
         off = head_offset(r["V"], self.masks)
+        front = next(v for v in views if v.name == "FRONT")
+        style = hairstyle.detect_style(front.img, front.landmarks)
+        seed = None
+        if style["color"]:
+            c = style["color"]
+            seed = [int(c[5:7], 16), int(c[3:5], 16), int(c[1:3], 16)]
         hair_w, hair_hex = hair.hair_weights(
             r["tex"],
             r["Ux"][:n0],
@@ -104,6 +111,7 @@ class FlameReconstructor:
             texture.HEAD_V,
             float(r["V"][eye_ids][:, 1].mean()),
             faces=self.fl["faces"],
+            seed_bgr=seed,
         )
         # nível dos olhos e plano da frente do rosto, já no espaço do simulador (o modelo é transladado por `off`)
         eye_y = float(r["V"][eye_ids][:, 1].mean() + off[1])
@@ -128,7 +136,8 @@ class FlameReconstructor:
                 sliderSchemaVersion=bases.SLIDER_SCHEMA_VERSION,
                 regions=[f"{k}:{bases.REGION_LABEL[k]}" for k in bases.REGION_ORDER],
                 textured=True,
-                hairColor=hair_hex,
+                hairColor=style["color"] or hair_hex,
+                hairStyle=style,
                 eyeY=eye_y,
                 faceZ=face_z,
                 notice="Modelo ajustado às fotos (FLAME). É uma estimativa visual, não uma medida do rosto.",

@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { DEFAULT_APPEARANCE, irisColor, skinColor, type Appearance } from './appearance';
 import { BrowsAndLashes, Eyes, Hair } from './FaceExtras';
 import { HairStrands } from './HairStrandsView';
+import { resolveStyle, type DetectedHair, type HairModelId } from './hairStyles';
 import type { BrushParams } from './sculpt';
 import { createSculptRuntime, type SculptRuntime, type SculptState } from './sculptRuntime';
 import { applySkinShader } from './skinShader';
@@ -45,6 +46,10 @@ export interface ModelInfo {
   sliders: string[];
   /** O .glb traz a textura das fotos do paciente (pele, olhos e cabelo vêm dela, não da aparência do painel). */
   textured: boolean;
+  /** Estilo do cabelo lido na foto frontal (modelos reconstruídos novos). */
+  hairStyle?: DetectedHair | null;
+  /** Cor do cabelo lida da foto. */
+  hairColor?: string | null;
 }
 
 export interface ViewerHandle {
@@ -153,6 +158,7 @@ function FaceModel({
   shared,
 }: Props & { shared: React.RefObject<Shared> }) {
   const look = appearance ?? DEFAULT_APPEARANCE;
+  const hairModelId = look.hairModel as HairModelId;
   const skinHex = skinColor(look);
   const skinMix = useRef({ value: 1 }).current;
   const gltf = useGLTF(url);
@@ -168,7 +174,7 @@ function FaceModel({
   const ring = useRef<THREE.Mesh>(null);
   const lastStamp = useRef<THREE.Vector3 | null>(null);
 
-  const { mesh, eyes, regionAttrs, runtime, textured, strandsColor, eyeLevel, hairCoverage } = useMemo(() => {
+  const { mesh, eyes, regionAttrs, runtime, textured, strandsColor, eyeLevel, hairCoverage, detectedHair } = useMemo(() => {
     let source: THREE.Mesh | null = null;
     gltf.scene.traverse((o) => {
       if (!source && (o as THREE.Mesh).isMesh) source = o as THREE.Mesh;
@@ -204,6 +210,7 @@ function FaceModel({
       notice?: string;
       eyes?: { centers: [number, number, number][]; radius: number };
       hairColor?: string;
+      hairStyle?: DetectedHair;
       eyeY?: number;
       faceZ?: number;
     };
@@ -218,6 +225,8 @@ function FaceModel({
       vertices: n,
       sliders: Object.keys(m.morphTargetDictionary),
       textured: !!photoMap,
+      hairStyle: extras.hairStyle ?? null,
+      hairColor: extras.hairColor ?? null,
     });
     const hairAttr = geometry.getAttribute('_hair') as THREE.BufferAttribute | undefined;
     const hasHair = !!hairAttr;
@@ -235,10 +244,16 @@ function FaceModel({
       strandsColor: hasHair ? (extras.hairColor ?? '#2a2018') : null,
       eyeLevel: { eyeY: extras.eyeY, faceZ: extras.faceZ },
       hairCoverage: coverage,
+      detectedHair: extras.hairStyle ?? null,
     };
     // onLoaded é estável o bastante; recriar a malha a cada render seria caro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gltf]);
+
+  const strandStyle = useMemo(
+    () => (look.hairVisible ? resolveStyle(hairModelId, look.hairScale, detectedHair) : null),
+    [hairModelId, look.hairScale, look.hairVisible, detectedHair],
+  );
 
   useEffect(() => () => {
     mesh.geometry.dispose();
@@ -550,8 +565,18 @@ function FaceModel({
           hex={strandsColor}
         />
       )}
-      {textured && strandsColor && look.hairStrands && (
-        <HairStrands head={mesh} color={strandsColor} density={40 + look.hairVolume * 100} length={0.03 + look.hairLength * 0.12} eyeY={eyeLevel.eyeY} faceZ={eyeLevel.faceZ} />
+      {textured && strandsColor && strandStyle && (
+        <HairStrands
+          head={mesh}
+          color={look.hairColorHex ?? strandsColor}
+          density={40 + look.hairVolume * 100}
+          length={0.05}
+          style={strandStyle}
+          photoDirection={look.hairModel === 'auto'}
+          colorMix={look.hairColorHex ? 0.2 : 0.6}
+          eyeY={eyeLevel.eyeY}
+          faceZ={eyeLevel.faceZ}
+        />
       )}
       {look.hairVisible && !textured && (
         <Hair head={mesh} params={{ volume: look.hairVolume, length: look.hairLength, hairline: look.hairline, eyeY: eyes?.centers[0]?.[1] }} hex={look.hairHex} />

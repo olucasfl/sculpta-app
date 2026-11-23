@@ -15,7 +15,13 @@ export interface Appearance {
   /** Cor da íris vinda da foto (hex); se existir, vale no lugar da cor escolhida. */
   irisHex: string | null;
   hairVisible: boolean;
-  /** Fios finos de cabelo por cima da casca (experimental; só no modelo reconstruído). */
+  /** Modelo de cabelo em fios (modelo reconstruído): 'auto' = lido da foto, 'none' = sem fios, ou um modelo pronto. */
+  hairModel: string;
+  /** 0,4 a 2: multiplica o comprimento do estilo. */
+  hairScale: number;
+  /** Cor escolhida à mão; `null` = a cor lida da foto. */
+  hairColorHex: string | null;
+  /** (antigo; hoje vale `hairModel`) Fios finos de cabelo por cima da casca (experimental; só no modelo reconstruído). */
   hairStrands: boolean;
   /** Casca de cabelo sobre o modelo reconstruído (experimental, desligada: a textura das fotos já traz o cabelo). */
   hairCap: boolean;
@@ -37,7 +43,10 @@ export const DEFAULT_APPEARANCE: Appearance = {
   eyeColor: 'castanho',
   irisHex: null,
   hairVisible: true,
-  hairStrands: false,
+  hairModel: 'auto',
+  hairScale: 1,
+  hairColorHex: null,
+  hairStrands: true,
   hairCap: false,
   hairHex: '#3b2a1e',
   hairVolume: 0.5,
@@ -93,7 +102,10 @@ const KEY = (simulationId: string) => `sculpta.appearance.${simulationId}`;
 export function loadAppearance(simulationId: string): Appearance {
   try {
     const raw = localStorage.getItem(KEY(simulationId));
-    if (raw) return { ...DEFAULT_APPEARANCE, ...(JSON.parse(raw) as Partial<Appearance>) };
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<Appearance>;
+      return { ...DEFAULT_APPEARANCE, ...saved, hairStrands: true };
+    }
   } catch {
     /* sem armazenamento ou dado inválido: usa o padrão */
   }

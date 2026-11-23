@@ -13,11 +13,19 @@ import numpy as np
 HAIR_Y_MAX = 100  # luminância (Y) abaixo da qual um pixel que não é pele conta como cabelo
 
 
-def hair_mask(tex: np.ndarray) -> np.ndarray:
-    """Máscara suave (0-1) de cabelo no mapa de textura (BGR)."""
+def hair_mask(tex: np.ndarray, seed_bgr=None) -> np.ndarray:
+    """Máscara suave (0-1) de cabelo no mapa de textura (BGR).
+    seed_bgr: cor do cabelo medida na foto frontal; só entra quando o cabelo é claro (a regra do escuro não o vê)."""
     ycc = cv2.cvtColor(tex, cv2.COLOR_BGR2YCrCb)
     skin = (ycc[..., 1] >= 134) & (ycc[..., 1] <= 178) & (ycc[..., 2] >= 78) & (ycc[..., 2] <= 126) & (ycc[..., 0] > 70)
-    hair = ((ycc[..., 0] < HAIR_Y_MAX) & ~skin & (ycc[..., 0] > 0)).astype(np.float32)
+    hair = (ycc[..., 0] < HAIR_Y_MAX) & ~skin & (ycc[..., 0] > 0)
+    if seed_bgr is not None and cv2.cvtColor(np.uint8([[seed_bgr]]), cv2.COLOR_BGR2YCrCb)[0, 0, 0] >= HAIR_Y_MAX:
+        lab = cv2.cvtColor(tex, cv2.COLOR_BGR2LAB).astype(np.float32)
+        ref = cv2.cvtColor(np.uint8([[seed_bgr]]), cv2.COLOR_BGR2LAB).astype(np.float32)[0, 0]
+        d = lab - ref
+        close = np.sqrt((d[..., 0] * 0.45) ** 2 + d[..., 1] ** 2 + d[..., 2] ** 2) < 20
+        hair = hair | (close & ~skin & (ycc[..., 0] > 0))
+    hair = hair.astype(np.float32)
     return cv2.GaussianBlur(hair, (0, 0), 5)
 
 
@@ -40,13 +48,13 @@ def smooth_on_mesh(values, faces, iterations=4):
     return out
 
 
-def hair_weights(tex, uv, positions, masks, head_rows: float, y_eye: float, faces=None):
+def hair_weights(tex, uv, positions, masks, head_rows: float, y_eye: float, faces=None, seed_bgr=None):
     """Peso de cabelo (n,) para cada vértice original e a cor média do cabelo (hex).
 
     uv: (n,2) coordenadas de cada vértice (as primeiras n linhas da malha expandida são os vértices originais);
     positions: (n,3) em metros; head_rows: fração do mapa que é cabeça cilíndrica (o resto é olhos e orelhas)."""
     size = tex.shape[0]
-    m = hair_mask(tex)
+    m = hair_mask(tex, seed_bgr)
     u = np.clip((np.asarray(uv)[:, 0] % 1.0) * (size - 1), 0, size - 1).astype(int)
     v = np.clip(np.asarray(uv)[:, 1] * (size - 1), 0, size - 1).astype(int)
     w = m[v, u].astype(np.float64)
