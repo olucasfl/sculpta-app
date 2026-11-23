@@ -116,3 +116,11 @@ Verificação: imagens (frente ao lado da foto e 5 ângulos), 11 testes do worke
 - **Tela:** o teste do pincel estourava os 60 s (3D em software, ~1 min); o teto desse teste subiu para 150 s.
 
 **Limites:** a linha do cabelo ainda tem uma leve irregularidade nas têmporas (resolução da malha); o cabelo é uma casca de cor uniforme, sem fios, sem mecha, e o fundo da cabeça é preenchimento. A orelha 3D segue sendo a do FLAME deformada; o contorno interno dela é o da foto. Uma pessoa, conferido a olho no simulador (frente, 45° e perfis).
+
+## 12. Defeito encontrado com a segunda pessoa: perfil "virando" (corrigido)
+
+Com as fotos de uma pessoa nova, a reconstrução foi recusada (`LOW_QUALITY`: "os pontos do rosto não ficaram coerentes"). As 7 vistas de frente e 20°/45° se ajustaram bem (1,1% a 1,8% da altura do rosto), mas as duas de perfil de 90° saíram com giro de ±135° e erro de 28%: o detector de rosto erra em perfil e o ajuste caía num mínimo ruim, testando também o sinal invertido.
+
+**Correção:** o sentido do giro já foi validado com a câmera real (esquerda = positivo), então cada vista tem uma faixa (`yaw_bounds_for`): LEFT em 0° a 110°, RIGHT em −110° a 0°, frente e queixo em ±30°. O ajuste parte de vários giros iniciais (50%, 75% e 100% do nominal) e fica com o de menor erro. Resultado na pessoa nova: perfis em +59° e −61°, todas as vistas entre 1,1% e 1,8%, `qualityScore` 0,72. Na primeira pessoa os números não mudaram (perfis +64,6° e −68,0°). Dois testes novos cobrem isso (inclui um perfil com pontos ruidosos).
+
+**Limite:** é a segunda pessoa testada; o perfil continua sendo a vista mais frágil do detector. Se o MediaPipe não achar rosto no perfil, a vista é descartada e vale o mínimo de 3 vistas (com a frontal obrigatória).

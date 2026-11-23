@@ -179,3 +179,37 @@ def test_suavizar_na_malha_tira_degraus_e_preserva_a_media():
     assert np.all((s >= 0) & (s <= 1))
     flat = smooth_on_mesh(np.ones(6), faces, iterations=3)
     assert np.allclose(flat, 1.0)  # área toda coberta continua toda coberta
+
+
+def test_faixa_do_giro_por_vista():
+    from app.face.fit import yaw_bounds_for
+
+    assert yaw_bounds_for("LEFT_90") == (0.0, 110.0)
+    assert yaw_bounds_for("LEFT_20-abc") == (0.0, 110.0)
+    assert yaw_bounds_for("RIGHT_45") == (-110.0, 0.0)
+    assert yaw_bounds_for("FRONT") == (-30.0, 30.0)
+    assert yaw_bounds_for("CHIN_UP") == (-30.0, 30.0)
+
+
+@needs_flame
+def test_perfil_nao_vira_para_o_lado_errado_mesmo_com_pontos_ruins():
+    """Reproduz o defeito de uma pessoa real: nas vistas de perfil o ajuste caía em giro de 135 graus (erro de 28%).
+    Com a faixa por vista, o giro do perfil esquerdo fica entre 0 e 110 e o do direito entre -110 e 0."""
+    from app.face import fit
+
+    fl = fit.load_flame()
+    beta = np.random.default_rng(2).normal(0, 0.6, fit.K_SHAPE)
+    L = fl["L0"] + fl["LD"] @ beta
+    Hh = 420.0
+    views = []
+    for name, yaw in (("FRONT", 0), ("LEFT_45", 45), ("RIGHT_45", -45), ("LEFT_90", 65), ("RIGHT_90", -65)):
+        R = fit.rotmat([yaw, 0, 0])
+        obs = fit.project(L @ R.T, 1.0 / 0.22, np.array([0.5, 0.5]), 1) * Hh
+        if name.endswith("90"):  # perfil com pontos ruidosos, como o detector faz de lado
+            obs = obs + np.random.default_rng(7).normal(0, 6.0, obs.shape)
+        views.append(fit.View(name, np.zeros((640, 480, 3), np.uint8), obs))
+    _V, _b, _m, errors = fit.fit_views(views, fl, log=lambda *_: None)
+    by = {v.name: v for v in views}
+    assert 0 <= by["LEFT_90"].rot[0] <= 110 and -110 <= by["RIGHT_90"].rot[0] <= 0
+    assert 40 < by["LEFT_90"].rot[0] < 100 and -100 < by["RIGHT_90"].rot[0] < -40
+    assert max(e[0] for e in errors.values()) < 0.05  # nenhuma vista fica fora (antes: 28%)

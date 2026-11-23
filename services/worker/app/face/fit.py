@@ -112,6 +112,18 @@ def project(P, s, t, mirror):
     return np.stack([mirror * s * P[:, 0] + t[0], -s * P[:, 1] + t[1]], axis=1)
 
 
+def yaw_bounds_for(name):
+    """Faixa do giro por vista. O sentido do giro já foi validado com câmera real (esquerda = positivo), então a vista
+    "esquerda" só pode girar para um lado e a "direita" para o outro; de frente e de queixo o giro é pequeno. Sem isso,
+    o detector de rosto, que erra em perfil, deixava o ajuste "virar" o rosto (giro de 135 graus, erro de 28%)."""
+    base = name.split("-")[0]
+    if base.startswith("LEFT"):
+        return (0.0, 110.0)
+    if base.startswith("RIGHT"):
+        return (-110.0, 0.0)
+    return (-30.0, 30.0)
+
+
 class View:
     def __init__(self, name, img, obs_px, path=""):
         self.path = str(path)
@@ -122,6 +134,7 @@ class View:
         self.obs = obs_px / self.H
         self.w_img = (w, h)
         self.rot = np.array([NOMINAL_YAW[name.split("-")[0]], NOMINAL_PITCH.get(name, 0), 0.0], dtype=float)
+        self.yaw_bounds = yaw_bounds_for(name)
         self.s = 5.0
         self.t = np.zeros(2)
         self.weight = np.ones(len(obs_px))
@@ -154,8 +167,8 @@ def fit_view(view, fl, beta, mirror, flip_yaw=False, iters=1, fix_yaw=None):
     x0[3] = np.log(sc)
     p0 = project(L @ R0.T, sc, np.zeros(2), mirror)
     x0[4:6] = view.obs.mean(0) - p0.mean(0)
-    lo = np.array([-135, -45, -25, -np.inf, -np.inf, -np.inf])
-    hi = np.array([135, 45, 25, np.inf, np.inf, np.inf])
+    lo = np.array([view.yaw_bounds[0], -45, -25, -np.inf, -np.inf, -np.inf])
+    hi = np.array([view.yaw_bounds[1], 45, 25, np.inf, np.inf, np.inf])
     if fix_yaw is not None:  # giro fixado (ex.: vindo da silhueta); os demais parâmetros se ajustam
         lo[0], hi[0] = fix_yaw - 1e-3, fix_yaw + 1e-3
         x0[0] = fix_yaw
@@ -215,10 +228,15 @@ def fit_views(views, fl, log=print):
     # FLAME olha para +z e a esquerda do sujeito é +x (verificado nas máscaras do próprio modelo)
     mirror = 1
     for v in views:
+        # vários giros iniciais dentro da faixa da vista (a câmera costuma medir menos que o ângulo real, ~65 graus no
+        # perfil de 90): fica com o de menor erro. Um só ponto de partida podia cair num mínimo ruim.
+        nominal = v.rot[0]
         cands = []
-        for flip in (False, True):  # sinal do giro decidido por menor erro
-            x, e = fit_view(v, fl, beta, mirror, flip_yaw=flip)
+        for frac in (0.5, 0.75, 1.0) if abs(nominal) > 25 else (1.0,):
+            v.rot[0] = nominal * frac
+            x, e = fit_view(v, fl, beta, mirror)
             cands.append((e, x))
+        v.rot[0] = nominal
         e, x = min(cands, key=lambda c: c[0])
         v.rot, v.s, v.t = x[:3], float(np.exp(x[3])), x[4:6]
     for it in range(10):  # alterna forma <-> pose
