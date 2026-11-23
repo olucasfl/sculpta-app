@@ -187,3 +187,16 @@ Um painel "Comparar" com: **Cortina**, **Alternar** (segurar para ver o antes), 
 - Verificado na tela com o modelo real: um traço longo sobre a boca e as bochechas pintou só a zona dos lábios no mapa de alterações.
 
 **Limites:** o pincel não tem mais "livre" por escolha (decisão do plano); a zona é a região do modelo e não um recorte anatômico (a região malar, por exemplo, cobre sobretudo a área logo abaixo dos olhos); a posição do toque usa a malha original (em áreas muito deformadas o toque pode cair um pouco fora).
+
+## 17. Etapa 6 entregue (23/11/2026): comparação em um lugar só
+
+- **Botão "Comparar" na barra de baixo** (mostra o modo ativo, por exemplo "Comparar · Cortina"). A barra ficou com: modo (Pincel, Regiões, Girar), Comparar e quatro ícones (regiões, malha, recentralizar, tela cheia). Saíram da barra os cinco botões de vista, os quatro de comparação e o botão do mapa.
+- **Painel Comparar** (abre acima da barra): 
+  - **Modo:** Simulação, Cortina, Alternar, Lado a lado e **Diferença** (o mapa de alterações, em mm, vira um modo de comparação). Cada modo tem uma frase de ajuda.
+  - **Vistas em miniatura:** as 5 vistas aparecem como miniaturas da simulação atual (geradas só com o painel aberto e depois de uma pausa nas mudanças); a vista escolhida vale para todos os modos.
+  - **Zoom na zona:** "Zoom na zona: {procedimento}" e "Rosto todo".
+- Os modos trocam entre si sem sobrar o anterior (escolher Diferença desliga a cortina e vice-versa).
+- O e2e da aparência agora abre o painel Comparar para trocar de vista. 80 testes e o e2e do simulador passam.
+- Verificado na tela com o modelo real: painel com os cinco modos e as cinco miniaturas (perfil direito, 45° direito, frente, 45° esquerdo, perfil esquerdo).
+
+**Limites:** as miniaturas mostram a simulação (não o antes); a cortina e o lado a lado continuam usando a vista atual do rosto (as miniaturas servem para escolher a vista); as miniaturas são geradas na tela do navegador e em computador sem placa de vídeo podem demorar alguns segundos; não vi o painel dentro da tela completa do simulador (pede login).

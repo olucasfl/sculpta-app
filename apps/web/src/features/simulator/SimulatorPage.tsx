@@ -13,10 +13,8 @@ import {
 } from '@sim/contracts';
 import {
   ChevronLeft,
-  Columns2,
   Crosshair,
   Download,
-  Eye,
   FileText,
   Grid3x3,
   History as HistoryIcon,
@@ -31,7 +29,6 @@ import {
   Save,
   SplitSquareHorizontal,
   Undo2,
-  Thermometer,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { Link, useBlocker, useParams } from 'react-router';
@@ -59,6 +56,7 @@ import { BrushPanel, DEFAULT_BRUSH, type BrushSettings } from './BrushPanel';
 import { colorsFromPhoto } from './photoColors';
 import type { SculptState } from './sculptRuntime';
 import { LowConfidenceScreen, NoWebglScreen } from './SimulatorStates';
+import { ComparePanel, COMPARE_MODES, VIEW_LABELS, type CompareUi } from './ComparePanel';
 import { ProcedurePanel } from './ProcedurePanel';
 import { HEAT_MAX_MM } from './heat';
 import { isBilateral, newPointId, type AppPoint } from './points';
@@ -77,19 +75,7 @@ const REGION_PRESET: Record<FaceRegion, string> = {
   temple: 'temple',
   masseter: 'masseter',
 };
-const VIEWS: { id: ViewName; label: string }[] = [
-  { id: 'RIGHT_90', label: 'Perfil dir.' },
-  { id: 'RIGHT_45', label: '45° dir.' },
-  { id: 'FRONT', label: 'Frente' },
-  { id: 'LEFT_45', label: '45° esq.' },
-  { id: 'LEFT_90', label: 'Perfil esq.' },
-];
-const COMPARE: { id: CompareMode; label: string; icon: React.ReactNode }[] = [
-  { id: 'off', label: 'Simulação', icon: <Layers className="size-4" aria-hidden /> },
-  { id: 'curtain', label: 'Cortina', icon: <SplitSquareHorizontal className="size-4" aria-hidden /> },
-  { id: 'side', label: 'Lado a lado', icon: <Columns2 className="size-4" aria-hidden /> },
-  { id: 'hold', label: 'Alternar', icon: <Eye className="size-4" aria-hidden /> },
-];
+
 
 export function SimulatorPage() {
   const { id = '' } = useParams();
@@ -115,6 +101,9 @@ export function SimulatorPage() {
   const [placing, setPlacing] = useState(false);
   const [savedPoints, setSavedPoints] = useState('[]');
   const [compare, setCompare] = useState<CompareMode>('off');
+  const [compareOpen, setCompareOpen] = useState(false);
+  /** Miniaturas das 5 vistas (a simulação como está agora); geradas só com o painel Comparar aberto. */
+  const [thumbs, setThumbs] = useState<Partial<Record<ViewName, string>>>({});
   const [curtain, setCurtain] = useState(0.5);
   const [showOriginal, setShowOriginal] = useState(false);
   const [view, setView] = useState<ViewName>('FRONT');
@@ -227,6 +216,19 @@ export function SimulatorPage() {
   }, []);
   const onLoaded = useCallback((i: ModelInfo) => setInfo(i), []);
 
+  // Miniaturas das 5 vistas, só com o painel Comparar aberto e depois de uma pausa nas mudanças
+  useEffect(() => {
+    if (!compareOpen || !info) return;
+    const t = window.setTimeout(() => {
+      const v = viewer.current;
+      if (!v) return;
+      const next: Partial<Record<ViewName, string>> = {};
+      for (const { id } of VIEW_LABELS) next[id] = v.snapshot({ view: id, original: false, width: 120, height: 150 });
+      setThumbs(next);
+    }, 500);
+    return () => window.clearTimeout(t);
+  }, [compareOpen, info, history.live, sculptState.revision, points]);
+
   // regiões do procedimento escolhido (a zona onde os pontos valem)
   const presetRegions = useMemo(() => {
     const p = PROCEDURE_PRESETS.find((x) => x.id === presetId);
@@ -287,6 +289,13 @@ export function SimulatorPage() {
     else void document.documentElement.requestFullscreen?.();
   };
   const preset = PROCEDURE_PRESETS.find((p) => p.id === presetId)!;
+  /** Modo de comparação mostrado na interface: o mapa de alterações é o modo "Diferença". */
+  const cmpMode: CompareUi = heatmap ? 'diff' : compare;
+  const selectCompare = (m: CompareUi) => {
+    setHeatmap(m === 'diff');
+    setCompare(m === 'diff' ? 'off' : m);
+    setShowOriginal(false);
+  };
   const sliders = SLIDERS.filter((x) => (preset.sliders as readonly string[]).includes(x.id));
   const regionsInPreset = [...new Set(sliders.map((x) => x.region))];
   /** Limite de cada slider em mm: a medida deste rosto, ou a de um rosto médio. */
@@ -520,7 +529,23 @@ export function SimulatorPage() {
         </div>
       )}
 
-      {/* Barra inferior: modo, vistas e comparação */}
+      {compareOpen && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-24 z-30 flex justify-center px-3">
+          <ComparePanel
+            mode={cmpMode}
+            onMode={selectCompare}
+            view={view}
+            onView={goTo}
+            thumbs={thumbs}
+            zoneLabel={preset.label}
+            onZoomZone={() => setFocus((f) => ({ regions: presetRegions, nonce: (f?.nonce ?? 0) + 1 }))}
+            onZoomAll={() => goTo(view)}
+            onClose={() => setCompareOpen(false)}
+          />
+        </div>
+      )}
+
+      {/* Barra inferior: modo e ferramentas; a comparação e as vistas ficam no painel Comparar */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-1.5 p-3">
         <div className={cn(GLASS, 'pointer-events-auto flex flex-wrap items-center justify-center gap-2 px-2 py-1.5')}>
           <div role="group" aria-label="Modo" className="flex gap-1 rounded-lg bg-subtle p-0.5">
@@ -534,44 +559,16 @@ export function SimulatorPage() {
               <Move3d className="size-4" aria-hidden /> Girar
             </button>
           </div>
-          <div role="group" aria-label="Vistas" className="flex flex-wrap gap-1">
-            {VIEWS.map((v) => (
-              <button
-                key={v.id}
-                type="button"
-                aria-pressed={view === v.id}
-                onClick={() => goTo(v.id)}
-                className={cn('rounded-md px-2.5 py-1 text-xs font-medium', view === v.id ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle hover:text-ink')}
-              >
-                {v.label}
-              </button>
-            ))}
-          </div>
-          <div role="group" aria-label="Comparação" className="flex gap-1 rounded-lg bg-subtle p-0.5">
-            {COMPARE.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                aria-pressed={compare === c.id}
-                title={c.label}
-                onClick={() => setCompare(c.id)}
-                className={cn('inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium', compare === c.id ? 'bg-surface text-ink shadow-card' : 'text-muted hover:text-ink')}
-              >
-                {c.icon}
-                <span className="hidden lg:inline">{c.label}</span>
-              </button>
-            ))}
-          </div>
           <button
             type="button"
-            aria-pressed={heatmap}
-            onClick={() => setHeatmap((v) => !v)}
-            title="Mapa de alterações: mostra, em cores, o quanto cada ponto da pele saiu do lugar"
-            className={cn('inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium', heatmap ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle')}
+            aria-expanded={compareOpen}
+            onClick={() => setCompareOpen((v) => !v)}
+            title="Comparar com o original, trocar de vista e dar zoom na zona"
+            className={cn('inline-flex min-h-9 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium', compareOpen || cmpMode !== 'off' ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle hover:text-ink')}
           >
-            <Thermometer className="size-4" aria-hidden />
-            <span className="hidden lg:inline">Mapa de alterações</span>
-            <span className="sr-only lg:hidden">Mapa de alterações</span>
+            <SplitSquareHorizontal className="size-4" aria-hidden />
+            Comparar
+            {cmpMode !== 'off' && <span className="font-normal">· {COMPARE_MODES.find((m) => m.id === cmpMode)?.label}</span>}
           </button>
           <button type="button" aria-pressed={showRegions} onClick={() => setShowRegions((v) => !v)} title="Mostrar regiões" className={cn('rounded-md p-1.5', showRegions ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle')}>
             <Layers className="size-4" aria-hidden />

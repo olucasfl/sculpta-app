@@ -106,6 +106,7 @@ test('aparência: pele, olhos, cabelo e sobrancelhas aparecem; controles mudam o
   await openSimulator(page);
   const dir = join('e2e', 'screenshots', info.project.name);
   mkdirSync(dir, { recursive: true });
+  await page.getByRole('button', { name: 'Comparar' }).click(); // as vistas ficam no painel Comparar
   const panel = page.getByRole('group', { name: 'Vistas' });
   await expect(page.getByText('Aparência', { exact: true })).toBeVisible();
   await page.screenshot({ path: join(dir, '30-aparencia-frente.png') });
