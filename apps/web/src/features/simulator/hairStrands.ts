@@ -28,8 +28,7 @@ export interface StrandParams {
   photoDirection?: boolean;
   /** Peso da cor lida da foto sobre a cor base, de 0 a 1 (padrão 0,6). */
   colorMix?: number;
-  /** Modo mechas: não reduz a densidade pelo comprimento e entrega cada fio inteiro em `onStrand`. */
-  lockMode?: boolean;
+  /** Recebe cada fio inteiro (do couro cabeludo à ponta). */
   onStrand?: (s: StrandPath) => void;
 }
 
@@ -202,7 +201,7 @@ export function buildStrands(
   const segs = p.segments ?? (st ? (st.curl > 0.4 ? 12 : Math.max(6, Math.min(14, Math.round(maxLen * 70)))) : 6);
   const rnd = mulberry32(p.seed ?? 1);
   // cabelo comprido tem muito mais segmentos por fio: menos fios dão o mesmo efeito e pesam menos
-  const density = p.density * (st && !p.lockMode ? Math.max(0.35, 1 - maxLen * 1.2) : 1);
+  const density = p.density * (st ? Math.max(0.4, 1 - maxLen * 1.1) : 1);
   const nv = pos.length / 3;
 
   // Coroa: o ponto mais alto entre os vértices com cabelo, um pouco para trás. O fluxo irradia dela.
@@ -232,7 +231,7 @@ export function buildStrands(
   const cy = (top + yb) / 2;
   const hy = (top - yb) / 2 + 0.004;
   // Grade espacial dos vértices da cabeça: os fios param na superfície REAL (não num elipsoide) e, se curtos, deitam nela.
-  const CELL = 0.012;
+  const CELL = 0.018;
   const gkey = (x: number, y: number, z: number) => ((x + 512) * 1024 + (y + 512)) * 1024 + (z + 512);
   const grid = new Map<number, number[]>();
   for (let i = 0; i < nv; i++) {
@@ -244,7 +243,7 @@ export function buildStrands(
   const nearest = (q: number[]) => {
     const cx0 = Math.floor(q[0]! / CELL), cy0 = Math.floor(q[1]! / CELL), cz0 = Math.floor(q[2]! / CELL);
     let best = -1, bd = 0.045 * 0.045;
-    for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) for (let dz = -2; dz <= 2; dz++) {
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
       const list = grid.get(gkey(cx0 + dx, cy0 + dy, cz0 + dz));
       if (!list) continue;
       for (const i of list) {
@@ -254,8 +253,35 @@ export function buildStrands(
     }
     return best;
   };
+  // Orelhas: as mais salientes de cada lado, na faixa de altura entre os olhos e o nariz. O cabelo passa ATRÁS delas.
+  const ears: { sx: number; cx: number; cy: number; cz: number; ry: number; rz: number }[] = [];
+  for (const sx of [-1, 1]) {
+    let maxX = -Infinity;
+    const inBand = (i: number) =>
+      sx * pos[i * 3]! > 0.05 && pos[i * 3 + 1]! > eyeLevel - 0.08 && pos[i * 3 + 1]! < eyeLevel + 0.03 && pos[i * 3 + 2]! < cz + 0.02;
+    for (let i = 0; i < nv; i++) if (inBand(i)) maxX = Math.max(maxX, sx * pos[i * 3]!);
+    if (!Number.isFinite(maxX)) continue;
+    let n = 0, mx = 0, my = 0, mz = 0, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (let i = 0; i < nv; i++) {
+      if (!inBand(i) || sx * pos[i * 3]! < maxX - 0.022) continue;
+      n++;
+      mx += pos[i * 3]!; my += pos[i * 3 + 1]!; mz += pos[i * 3 + 2]!;
+      y0 = Math.min(y0, pos[i * 3 + 1]!); y1 = Math.max(y1, pos[i * 3 + 1]!);
+      z0 = Math.min(z0, pos[i * 3 + 2]!); z1 = Math.max(z1, pos[i * 3 + 2]!);
+    }
+    if (n < 6) continue;
+    ears.push({ sx, cx: mx / n, cy: my / n, cz: mz / n, ry: Math.max(0.045, (y1 - y0) / 2 + 0.026), rz: Math.max(0.035, (z1 - z0) / 2 + 0.02) });
+  }
   let inFringe = false;
   const collide = (q: number[], off: number, stick: number) => {
+    for (const e of ears) {
+      if (e.sx * q[0]! < Math.abs(e.cx) - 0.045) continue; // só do lado de fora da cabeça
+      const dd = Math.hypot((q[1]! - e.cy) / e.ry, (q[2]! - e.cz) / e.rz);
+      if (dd < 1) {
+        const k = 1 - dd * dd;
+        q = [q[0]!, q[1]!, q[2]! + (e.cz - e.rz * 1.05 - q[2]!) * k]; // desliza para trás da orelha
+      }
+    }
     // o cabelo não cai na frente do rosto: ao lado dele
     if (!inFringe && p.faceZ !== undefined && q[1]! < eyeLevel + 0.045 && q[2]! > p.faceZ - 0.008 && Math.abs(q[0]!) < hx * 0.9) {
       q = [(q[0]! >= 0 ? 1 : -1) * hx * 0.9, q[1]!, q[2]!];
@@ -378,6 +404,9 @@ export function buildStrands(
       const nW = 0.32 + 0.5 * puff + 0.5 * lift;
       let dir = norm([normal[0]! * nW + flow[0]! * 0.5, normal[1]! * nW + flow[1]! * 0.5, normal[2]! * nW + flow[2]! * 0.5]);
       const phase0 = rnd() * Math.PI * 2;
+      // curva natural: fios vizinhos oscilam juntos (fase comum pela posição da raiz) com pequena diferença própria
+      const wavePhase = root[0]! * 38 + root[2]! * 24 + root[1]! * 12 + (rnd() - 0.5) * 1.4;
+      const waveAmp = st ? Math.max(st.wave ?? 0, 0.12) : 0;
       const off = 0.003 + 0.006 * rnd() + 0.012 * puff; // espessura do cabelo sobre a pele
       const shortness = Math.max(0, Math.min(1, 1 - len / 0.1)) * 0.85;
       const tone = 0.7 + rnd() * 0.4;
@@ -410,6 +439,12 @@ export function buildStrands(
           const ph = phase0 + k * (1.7 + 2 * curl);
           const amp = curl * 0.55 * (0.5 + 0.5 * (k / segs));
           sd = norm([0, 1, 2].map((q) => dir[q]! + amp * (a[q]! * Math.cos(ph) + b[q]! * Math.sin(ph))));
+        }
+        if (waveAmp > 0 && len > 0.02) {
+          const lat = norm([dir[2]!, 0, -dir[0]!]); // lateral ao fio, na horizontal
+          const ph = wavePhase + (2 * Math.PI * step * (k + 1)) / 0.075;
+          const ramp = Math.min(1, (k + 1) / (segs * 0.3));
+          sd = norm([0, 1, 2].map((q) => sd[q]! + lat[q]! * waveAmp * 0.9 * ramp * Math.cos(ph)));
         }
         let next = [cur[0]! + sd[0]! * step, cur[1]! + sd[1]! * step, cur[2]! + sd[2]! * step];
         if (st) {

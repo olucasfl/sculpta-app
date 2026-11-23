@@ -64,19 +64,27 @@ describe('mechas', () => {
   const idx = [0, 1, 2, 0, 2, 3];
   const hair = [1, 1, 1, 1];
 
-  it('monta fitas válidas, com cor e índices dentro do limite', async () => {
-    const { buildLocks } = await import('./hairLocks');
+  it('entrega cada fio inteiro e com curva (não é uma reta)', () => {
     const st = { ...resolveStyle('f-medio', 1, null)! };
     const paths: import('./hairStrands').StrandPath[] = [];
-    const r = buildStrands(pos, nor, idx, hair, { density: 4, length: 0.2, style: st, lockMode: true, segments: 12, seed: 4, eyeY: 0, faceZ: 0.06, onStrand: (s) => paths.push(s) });
+    const r = buildStrands(pos, nor, idx, hair, { density: 6, length: 0.2, style: st, segments: 14, seed: 4, eyeY: 0, faceZ: 0.06, onStrand: (s) => paths.push(s) });
     expect(paths.length).toBe(r.strands);
-    const g = buildLocks(paths, r.head, { base: [0.1, 0.05, 0.03], wave: st.wave ?? 0, puff: st.puff, seed: 2 });
-    expect(g.locks).toBe(paths.length);
-    expect(g.position.every(Number.isFinite)).toBe(true);
-    expect(g.color.every((x) => x >= 0 && x <= 1)).toBe(true);
-    const nVerts = g.position.length / 3;
-    expect(Math.max(...Array.from(g.index))).toBeLessThan(nVerts);
-    expect(g.index.length).toBe((nVerts / 2 - g.locks) * 6);
+    expect(paths.every((p) => p.pts.length === 15 && p.pts.flat().every(Number.isFinite))).toBe(true);
+    // desvio lateral máximo em relação à reta raiz-ponta: há curva
+    let curved = 0;
+    for (const p of paths) {
+      const a = p.pts[0]!, b = p.pts[14]!;
+      const d = [b[0]! - a[0]!, b[1]! - a[1]!, b[2]! - a[2]!];
+      const L = Math.hypot(d[0]!, d[1]!, d[2]!) || 1;
+      let maxDev = 0;
+      for (const q of p.pts) {
+        const w = [q[0]! - a[0]!, q[1]! - a[1]!, q[2]! - a[2]!];
+        const cr = [w[1]! * d[2]! - w[2]! * d[1]!, w[2]! * d[0]! - w[0]! * d[2]!, w[0]! * d[1]! - w[1]! * d[0]!];
+        maxDev = Math.max(maxDev, Math.hypot(cr[0]!, cr[1]!, cr[2]!) / L);
+      }
+      if (maxDev > 0.004) curved++;
+    }
+    expect(curved).toBeGreaterThan(paths.length * 0.6);
   });
 
   it('o fluxo perto da coroa não gera fios levantados (sem tufo)', () => {

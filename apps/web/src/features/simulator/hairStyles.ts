@@ -41,13 +41,13 @@ const P = (
 export const HAIR_PRESETS = [
   P('m-curto', 'Curto social (para trás)', 'm', [0.045, 0.012, 0.012], [0, 0, 0.1], { comb: 0.8 }),
   P('m-franja', 'Curto com franja de lado', 'm', [0.06, 0.018, 0.015], [0.85, 0.05, 0.1], { sweep: 0.8, part: 0.3, partX: 0.03 }),
-  P('m-medio', 'Médio com risca de lado', 'm', [0.09, 0.06, 0.06], [0.3, 0, 0.1], { part: 0.8, partX: 0.025, sweep: 0.3, wave: 0.15 }),
-  P('m-longo', 'Longo liso, risca no meio', 'm', [0.17, 0.19, 0.21], [0, 0, 0], { part: 1, partX: 0, wave: 0.2 }),
+  P('m-medio', 'Médio com risca de lado', 'm', [0.09, 0.06, 0.06], [0.3, 0, 0.1], { part: 0.8, partX: 0.025, sweep: 0.3, wave: 0.1 }),
+  P('m-longo', 'Longo liso, risca no meio', 'm', [0.17, 0.19, 0.21], [0, 0, 0], { part: 1, partX: 0, wave: 0.12 }),
   P('m-cacheado', 'Cacheado curto', 'm', [0.06, 0.03, 0.03], [0.3, 0.9, 0.7], { lift: 0.6 }),
-  P('f-chanel', 'Chanel (risca de lado)', 'f', [0.12, 0.15, 0.12], [0, 0, 0.1], { part: 0.9, partX: 0.025, wave: 0.1 }),
-  P('f-medio', 'Médio ondulado, risca no meio', 'f', [0.2, 0.26, 0.26], [0, 0, 0], { part: 1, partX: 0, wave: 0.55 }),
+  P('f-chanel', 'Chanel (risca de lado)', 'f', [0.12, 0.15, 0.12], [0, 0, 0.1], { part: 0.9, partX: 0.025, wave: 0.08 }),
+  P('f-medio', 'Médio ondulado, risca no meio', 'f', [0.2, 0.26, 0.26], [0, 0, 0], { part: 1, partX: 0, wave: 0.35 }),
   P('f-longo', 'Longo liso, risca no meio', 'f', [0.3, 0.38, 0.4], [0, 0, 0], { part: 1, partX: 0 }),
-  P('f-longo-franja', 'Longo ondulado com franja', 'f', [0.3, 0.38, 0.4], [0.9, 0, 0], { part: 0.4, wave: 0.5 }),
+  P('f-longo-franja', 'Longo ondulado com franja', 'f', [0.3, 0.38, 0.4], [0.9, 0, 0], { part: 0.4, wave: 0.3 }),
   P('f-cacheado', 'Cacheado volumoso', 'f', [0.14, 0.2, 0.18], [0.15, 0.85, 0.65], { part: 0.4, partX: 0.02, lift: 0.4 }),
 ] as const;
 
@@ -61,7 +61,7 @@ export function styleFromDetection(d: DetectedHair | null | undefined): StrandSt
   const curlRaw = clamp(d.curl, 0, 1);
   // até meio cacheado é onda larga; só acima disso vira cacho
   const curl = curlRaw > 0.5 ? curlRaw : 0;
-  const wave = curlRaw > 0.5 ? 0.3 : curlRaw * 1.6;
+  const wave = curlRaw > 0.5 ? 0.3 : Math.min(0.3, curlRaw);
   const puff = clamp((d.volume - 1.15) / 0.8, 0, 1) * (0.4 + 0.6 * curl);
   if (r < 0.12) {
     // curto: laterais e nuca rentes, mais comprimento em cima

@@ -569,7 +569,7 @@ function FaceModel({
         <HairStrands
           head={mesh}
           color={look.hairColorHex ?? strandsColor}
-          density={0.6 + look.hairVolume * 0.8}
+          density={40 + look.hairVolume * 100}
           length={0.05}
           style={strandStyle}
           photoDirection={look.hairModel === 'auto'}
