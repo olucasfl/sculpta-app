@@ -124,3 +124,22 @@ Com as fotos de uma pessoa nova, a reconstrução foi recusada (`LOW_QUALITY`: "
 **Correção:** o sentido do giro já foi validado com a câmera real (esquerda = positivo), então cada vista tem uma faixa (`yaw_bounds_for`): LEFT em 0° a 110°, RIGHT em −110° a 0°, frente e queixo em ±30°. O ajuste parte de vários giros iniciais (50%, 75% e 100% do nominal) e fica com o de menor erro. Resultado na pessoa nova: perfis em +59° e −61°, todas as vistas entre 1,1% e 1,8%, `qualityScore` 0,72. Na primeira pessoa os números não mudaram (perfis +64,6° e −68,0°). Dois testes novos cobrem isso (inclui um perfil com pontos ruidosos).
 
 **Limite:** é a segunda pessoa testada; o perfil continua sendo a vista mais frágil do detector. Se o MediaPipe não achar rosto no perfil, a vista é descartada e vale o mínimo de 3 vistas (com a frontal obrigatória).
+
+## 13. Fidelidade para qualquer pessoa: o que é automático e o que ainda não é (23/11/2026)
+
+**Princípio:** o sistema não pode depender de eu olhar as fotos de cada pessoa e ajustar. Tudo tem que ser decidido pelo próprio pipeline, com critério mensurável por pessoa, e o que não for confiável tem que cair num resultado seguro, não num resultado quebrado.
+
+**O que já é automático (vale para qualquer pessoa)**
+- **Giro de cada vista:** faixa por vista (esquerda 0° a 110°, direita −110° a 0°, frente e queixo ±30°) e vários giros iniciais; evita o ajuste "virar" o rosto por erro do detector em perfil.
+- **Rosto sem detecção:** vista sem rosto é descartada; a frontal é obrigatória e há mínimo de 3 vistas; senão `FACE_NOT_FOUND`.
+- **Qualidade:** erro de reprojeção por vista vira `qualityScore` (teto 0,79); abaixo de 0,2 a reconstrução é recusada com `LOW_QUALITY` e instrução ao usuário.
+- **Orelhas:** trava de plausibilidade (deslocamento, IoU e área). Se a marcação na foto não fizer sentido, a orelha do modelo não é deformada e fica com tom de pele liso.
+- **Cor da íris, esclera e abertura dos olhos, cor do cabelo:** medidas na foto de cada pessoa, sem valor fixo.
+
+**Ferramenta de verificação por pessoa:** `services/worker/scripts/evaluate.py` roda o ajuste em todas as capturas reais do ambiente e imprime, por pessoa, o erro de cada vista, o giro estimado (e se bateu no limite da faixa), e o estado de cada orelha. Sai com código 1 se alguma pessoa tiver problema. Foi ela que reproduziu sozinha o defeito da orelha da pessoa nova.
+
+**O que NÃO está garantido (honesto)**
+- Só há **2 pessoas distintas** para testar. Um critério que funciona em duas pessoas não prova que funciona em qualquer pessoa: é preciso um conjunto maior (tons de pele, cabelo e barba diferentes, óculos, cabelo na orelha, fundos claros e escuros) rodado por `evaluate.py` a cada mudança.
+- **A orelha da pessoa nova ainda cai na trava** (o alinhamento escorrega para o pescoço quando o pescoço é da cor da pele). O resultado é seguro (orelha lisa), mas não é a orelha da pessoa. Falta um alinhamento que não dependa só de cor de pele.
+- A forma vem do ajuste de um modelo estatístico (FLAME) a 105 pontos por foto: o contorno do modelo bate com o da pele na foto (largura 259 px contra 256 px), mas a profundidade (nariz, queixo de perfil) é estimada, não medida. A fidelidade de um escaneamento só vem de um sensor de profundidade (app iOS, Etapa 8).
+- Mancha oval no pescoço de uma das vistas e o topo da cabeça um pouco mais claro que o cabelo real: ainda sem causa tratada.
