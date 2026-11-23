@@ -18,6 +18,8 @@ export const BRUSH: Record<FaceRegion, BrushMap> = {
   malar: { v: 'malar.volume', h: 'malar.projection' },
   infraorbital: { v: 'infraorbital.volume' },
   nasolabial: { v: 'nasolabial.volume' },
+  temple: { v: 'temple.volume' },
+  masseter: { v: 'masseter.reduction' },
 };
 
 /** Pixels de arrasto para ir de 0 a 100% de um slider. */

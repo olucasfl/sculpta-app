@@ -1,6 +1,7 @@
 import {
   can,
   PROCEDURE_PRESETS,
+  SLIDER_MAX_MM,
   SIMULATION_DISCLAIMER,
   SLIDERS,
   type FaceRegion,
@@ -57,7 +58,7 @@ import { BrushPanel, DEFAULT_BRUSH, type BrushSettings } from './BrushPanel';
 import { colorsFromPhoto } from './photoColors';
 import type { SculptState } from './sculptRuntime';
 import { LowConfidenceScreen, NoWebglScreen } from './SimulatorStates';
-import { SliderControl } from './SliderControl';
+import { ProcedurePanel } from './ProcedurePanel';
 import { SourceBadge } from './SourceBadge';
 
 const GLASS = 'rounded-2xl border border-line bg-surface/85 shadow-pop backdrop-blur-md';
@@ -70,6 +71,8 @@ const REGION_PRESET: Record<FaceRegion, string> = {
   malar: 'malar',
   infraorbital: 'infraorbital',
   nasolabial: 'nasolabial',
+  temple: 'temple',
+  masseter: 'masseter',
 };
 const VIEWS: { id: ViewName; label: string }[] = [
   { id: 'RIGHT_90', label: 'Perfil dir.' },
@@ -254,6 +257,10 @@ export function SimulatorPage() {
   const preset = PROCEDURE_PRESETS.find((p) => p.id === presetId)!;
   const sliders = SLIDERS.filter((x) => (preset.sliders as readonly string[]).includes(x.id));
   const regionsInPreset = [...new Set(sliders.map((x) => x.region))];
+  /** Limite de cada slider em mm: a medida deste rosto, ou a de um rosto médio. */
+  const maxMmOf = (id: SliderId) => info?.sliderMm?.[id] ?? SLIDER_MAX_MM[id];
+  /** O modelo tem os controles do procedimento (modelos antigos não têm os novos). */
+  const isAvailable = (p: (typeof PROCEDURE_PRESETS)[number]) => !info || p.sliders.every((x) => info.sliders.includes(x));
   const canWrite = can(role, 'simulations.write');
   const modelUrl = r.meshUrl ?? TEMPLATE_URL;
   const isDemo = r.source === 'TEMPLATE' || info?.kind === 'TEMPLATE';
@@ -361,6 +368,7 @@ export function SimulatorPage() {
                 className={cn(
                   'flex w-full items-center justify-between gap-3 whitespace-nowrap rounded-lg px-3 py-1.5 text-left text-sm font-medium',
                   p.id === presetId ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-subtle hover:text-ink',
+                  !isAvailable(p) && 'opacity-50',
                 )}
               >
                 {p.label}
@@ -393,34 +401,19 @@ export function SimulatorPage() {
         ) : (
           <AppearancePanel value={appearance} onChange={setAppearance} onFromPhoto={canWrite ? colorsFromFrontPhoto : undefined} photoBusy={photoBusy} photoAvailable={!!frontPhoto?.landmarks} />
         )}
-        <div className="mb-1 flex items-center justify-between">
-          <h2 className="font-semibold">{preset.label}</h2>
-          {regionsInPreset.some((rg) => regionHasChanges(history.live, rg)) && (
-            <Button size="sm" variant="ghost" onClick={() => setHistory((h) => regionsInPreset.reduce((acc, rg) => resetRegion(acc, rg), h))}>
-              Restaurar
-            </Button>
-          )}
-        </div>
-        <p className="mb-3 text-xs text-muted">{preset.description}</p>
-        <div className="flex flex-col gap-4">
-          {sliders.map((x) => (
-            <SliderControl
-              key={x.id}
-              label={x.label}
-              min={x.min}
-              value={history.live[x.id] ?? 0}
-              onChange={(v) => setHistory((h) => setLive(h, x.id, v))}
-              onCommit={() => setHistory(commit)}
-              onFocusRegion={() => setHighlight(x.region)}
-            />
-          ))}
-        </div>
-        <details className="mt-3 text-xs text-muted">
-          <summary className="cursor-pointer font-medium text-ink">Limitação</summary>
-          <p className="mt-1">
-            {preset.limitation} Os controles não têm unidade e não indicam produto, quantidade ou técnica.
-          </p>
-        </details>
+        <ProcedurePanel
+          preset={preset}
+          values={history.live}
+          maxMm={maxMmOf}
+          available={isAvailable(preset)}
+          hasChanges={regionsInPreset.some((rg) => regionHasChanges(history.live, rg))}
+          disabled={!canWrite}
+          onChange={(id, v) => setHistory((h) => setLive(h, id, v))}
+          onCommit={() => setHistory(commit)}
+          onApplyShape={(vals) => setHistory((h) => commit(sliders.reduce((acc, x) => setLive(acc, x.id, vals[x.id] ?? 0), h)))}
+          onReset={() => setHistory((h) => regionsInPreset.reduce((acc, rg) => resetRegion(acc, rg), h))}
+          onFocusRegion={setHighlight}
+        />
       </div>
 
       {versionsOpen && (

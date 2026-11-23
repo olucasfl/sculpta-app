@@ -134,6 +134,7 @@ class FlameReconstructor:
             extras=dict(
                 kind="RECONSTRUCTION",
                 sliderSchemaVersion=bases.SLIDER_SCHEMA_VERSION,
+                sliderMaxMm={t["id"]: round(t["max_mm"], 2) for t in b["targets"]},
                 regions=[f"{k}:{bases.REGION_LABEL[k]}" for k in bases.REGION_ORDER],
                 textured=True,
                 hairColor=style["color"] or hair_hex,

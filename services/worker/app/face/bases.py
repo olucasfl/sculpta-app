@@ -11,9 +11,9 @@ import numpy as np
 
 from .fit import vertex_normals
 
-SLIDER_SCHEMA_VERSION = 1
+SLIDER_SCHEMA_VERSION = 2
 
-REGION_ORDER = ["nose", "lips", "chin", "jaw", "malar", "infraorbital", "nasolabial"]
+REGION_ORDER = ["nose", "lips", "chin", "jaw", "malar", "infraorbital", "nasolabial", "temple", "masseter"]
 REGION_LABEL = {
     "nose": "Nariz",
     "lips": "Lábios",
@@ -22,6 +22,8 @@ REGION_LABEL = {
     "malar": "Malar",
     "infraorbital": "Infraorbital",
     "nasolabial": "Sulco nasolabial",
+    "temple": "Têmpora",
+    "masseter": "Masseter",
 }
 
 # (id, região) na mesma ordem de packages/contracts/src/sliders.ts
@@ -41,6 +43,8 @@ SLIDERS = [
     ("malar.projection", "malar"),
     ("infraorbital.volume", "infraorbital"),
     ("nasolabial.volume", "nasolabial"),
+    ("temple.volume", "temple"),
+    ("masseter.reduction", "masseter"),
 ]
 
 # Deslocamento máximo (slider = 1) em unidades u do template; é VISUAL, não milímetro.
@@ -60,6 +64,8 @@ SLIDER_MAX = {
     "malar.projection": 0.04,
     "infraorbital.volume": 0.016,
     "nasolabial.volume": 0.02,
+    "temple.volume": 0.03,
+    "masseter.reduction": 0.03,
 }
 
 # Âncoras do template (y em u): olhos, ponta do nariz, linha da boca, base do queixo.
@@ -100,6 +106,9 @@ def region_weights(x, y, front):
         "malar": ellipse(ax, y, 0.4, -0.02, 0.17, 0.14) * f,
         "infraorbital": ellipse(ax, y, 0.24, 0.05, 0.14, 0.07) * f,
         "nasolabial": falloff(segment_d2(ax, y, 0.12, -0.26, 0.22, -0.52) / 0.06**2) * f,
+        # laterais: a têmpora fica acima e atrás do olho; o masseter, no ângulo da mandíbula e na bochecha baixa
+        "temple": ellipse(ax, y, 0.58, 0.3, 0.14, 0.15) * np.minimum(1, f * 3 + 0.2),
+        "masseter": ellipse(ax, y, 0.6, -0.55, 0.16, 0.2) * np.minimum(1, f * 3 + 0.2),
     }
     sub = {
         "dorsum": ellipse(x, y, 0, 0.03, 0.09, 0.2) * f,
@@ -175,12 +184,17 @@ def build_bases(V, F, masks):
         "malar.projection": vec(sx * 0.35 * w["malar"], 0.35 * w["malar"], 0.87 * w["malar"]),
         "infraorbital.volume": along(w["infraorbital"]),
         "nasolabial.volume": along(w["nasolabial"]),
+        "temple.volume": along(w["temple"]),
+        "masseter.reduction": vec(-sx * w["masseter"], zero, -0.1 * w["masseter"]),
     }
     targets = []
     for sid, region in SLIDERS:
         dp = d[sid] * SLIDER_MAX[sid] * s  # u -> metros
         dn = vertex_normals(V + dp, F) - N
         dn[np.abs(dn) < 1e-5] = 0.0
-        targets.append(dict(id=sid, region=region, positions=dp.astype(np.float32), normals=dn.astype(np.float32)))
+        max_mm = float(np.linalg.norm(dp, axis=1).max() * 1000)  # deslocamento máximo real deste slider, em mm
+        targets.append(
+            dict(id=sid, region=region, positions=dp.astype(np.float32), normals=dn.astype(np.float32), max_mm=max_mm)
+        )
     weights = np.stack([w[r] * alive for r in REGION_ORDER], axis=1).astype(np.float32)
     return dict(targets=targets, weights=weights, metres_per_unit=float(s), normals=N)

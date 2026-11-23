@@ -4,49 +4,45 @@ interface Props {
   label: string;
   value: number;
   min: number;
+  /** Deslocamento máximo (mm) quando o valor é 1: o controle mostra o valor em mm e o limite. */
+  maxMm?: number;
   onChange: (v: number) => void;
   onCommit: () => void;
   onFocusRegion?: () => void;
 }
 
-const describe = (v: number, min: number) => {
-  if (v === 0) return 'sem alteração';
-  const pct = Math.round(Math.abs(v) * 100);
-  return min < 0 ? `${v > 0 ? '+' : '−'}${pct}%` : `${pct}%`;
+const NEAR_LIMIT = 0.85;
+
+const mmText = (mm: number, signed: boolean) => {
+  const t = Math.abs(mm).toFixed(1).replace('.', ',');
+  if (mm === 0) return 'sem alteração';
+  return `${signed ? (mm > 0 ? '+' : '−') : ''}${t} mm`;
 };
 
-/** Slider sem unidade (não é mm, dose ou volume). O histórico registra ao soltar. */
-export function SliderControl({ label, value, min, onChange, onCommit, onFocusRegion }: Props) {
+const describe = (v: number, min: number, maxMm?: number) => {
+  if (v === 0) return 'sem alteração';
+  const pct = Math.round(Math.abs(v) * 100);
+  const base = min < 0 ? `${v > 0 ? '+' : '−'}${pct}%` : `${pct}%`;
+  return maxMm ? `${mmText(v * maxMm, min < 0)}, ${pct}% do limite` : base;
+};
+
+/**
+ * Controle de um ajuste. Com `maxMm` mostra o valor em milímetros e o limite da simulação (o fim da barra) e avisa
+ * quando se chega perto dele. O histórico registra ao soltar.
+ */
+export function SliderControl({ label, value, min, maxMm, onChange, onCommit, onFocusRegion }: Props) {
   const id = useId();
-  const text = describe(value, min);
+  const text = describe(value, min, maxMm);
+  const near = Math.abs(value) >= NEAR_LIMIT;
   return (
     <div className="flex flex-col gap-1.5" onMouseEnter={onFocusRegion}>
       <div className="flex items-baseline justify-between gap-2">
         <label htmlFor={id} className="text-sm font-medium">
           {label}
         </label>
-        <span className="flex items-center gap-1">
-          <input
-            type="number"
-            inputMode="numeric"
-            min={Math.round(min * 100)}
-            max={100}
-            step={1}
-            value={Math.round(value * 100)}
-            aria-label={`${label} em porcentagem`}
-            onChange={(e) => {
-              const n = Number(e.target.value);
-              if (Number.isFinite(n)) onChange(Math.min(1, Math.max(min, n / 100)));
-            }}
-            onBlur={onCommit}
-            onKeyDown={(e) => e.key === 'Enter' && onCommit()}
-            className="h-8 w-14 rounded-md border border-field bg-surface px-1.5 text-right text-xs tabular-nums"
-          />
-          <output htmlFor={id} className="sr-only">
-            {text}
-          </output>
-          <span aria-hidden className="text-xs text-muted">%</span>
-        </span>
+        <output htmlFor={id} className={near ? 'text-sm font-semibold tabular-nums text-amber-700' : 'text-sm tabular-nums text-ink'}>
+          {maxMm ? mmText(value * maxMm, min < 0) : `${Math.round(Math.abs(value) * 100)}%`}
+        </output>
       </div>
       <input
         id={id}
@@ -63,12 +59,11 @@ export function SliderControl({ label, value, min, onChange, onCommit, onFocusRe
         onBlur={onCommit}
         className="h-2 w-full cursor-pointer accent-[var(--color-accent)]"
       />
-      {min < 0 && (
-        <div className="flex justify-between text-xs uppercase tracking-wide text-faint" aria-hidden>
-          <span>menos</span>
-          <span>mais</span>
-        </div>
-      )}
+      <div className="flex justify-between text-xs text-faint" aria-hidden>
+        <span>{min < 0 ? (maxMm ? `−${maxMm.toFixed(1).replace('.', ',')} mm` : 'menos') : '0'}</span>
+        {near && <span className="font-medium text-amber-700">perto do limite</span>}
+        <span>{maxMm ? `${maxMm.toFixed(1).replace('.', ',')} mm (limite)` : 'mais'}</span>
+      </div>
     </div>
   );
 }

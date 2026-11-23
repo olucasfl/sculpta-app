@@ -24,6 +24,8 @@ export const SLIDER_MAX: Record<SliderId, number> = {
   'malar.projection': 0.04,
   'infraorbital.volume': 0.016,
   'nasolabial.volume': 0.02,
+  'temple.volume': 0.03,
+  'masseter.reduction': 0.03,
 };
 
 export interface MorphTarget {
@@ -36,7 +38,7 @@ export interface MorphTarget {
 
 export interface SliderBases {
   targets: MorphTarget[];
-  /** Pesos de região por vértice, na ordem de REGION_ORDER (7 por vértice). */
+  /** Pesos de região por vértice, na ordem de REGION_ORDER (9 por vértice). */
   regionWeights: Float32Array;
 }
 
@@ -85,6 +87,9 @@ export function buildSliderBases(mesh: TemplateMesh): SliderBases {
     // Suavizações
     along('infraorbital.volume', w.infraorbital);
     along('nasolabial.volume', w.nasolabial);
+    // Têmpora: volume; masseter: a lateral entra (afina o terço inferior)
+    along('temple.volume', w.temple);
+    set('masseter.reduction', -sx * w.masseter, 0, -0.1 * w.masseter);
   }
 
   const targets: MorphTarget[] = SLIDERS.map((s) => {

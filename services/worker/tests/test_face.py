@@ -61,7 +61,7 @@ def test_write_glb_formato_do_simulador():
 
 
 @needs_flame
-def test_bases_do_flame_15_sliders_olhos_parados_e_simetria():
+def test_bases_do_flame_17_sliders_olhos_parados_e_simetria():
     from app.face import fit, texture
 
     fl = fit.load_flame()
@@ -69,6 +69,9 @@ def test_bases_do_flame_15_sliders_olhos_parados_e_simetria():
     V = fl["v0"]  # rosto médio do FLAME
     b = bases.build_bases(V, fl["faces"], masks)
     assert [t["id"] for t in b["targets"]] == [s for s, _ in bases.SLIDERS]
+    assert len(b["targets"]) == 17
+    # mm reais por slider: poucos mm a ~1 cm, nunca zero
+    assert all(0.3 < t["max_mm"] < 20 for t in b["targets"])
     assert b["weights"].shape == (len(V), len(bases.REGION_ORDER))
     assert 0.0 <= float(b["weights"].min()) and float(b["weights"].max()) <= 1.0
     eyes = np.concatenate([np.asarray(masks["left_eyeball"], int), np.asarray(masks["right_eyeball"], int)])

@@ -5,7 +5,7 @@ import { falloff, segmentDistance } from './math.js';
  * Máscaras de região com pesos suaves (0–1), definidas sobre o template em unidades u.
  * Com o FLAME, estas funções viram índices/pesos pintados uma vez sobre a topologia fixa.
  */
-export const REGION_ORDER: FaceRegion[] = ['nose', 'lips', 'chin', 'jaw', 'malar', 'infraorbital', 'nasolabial'];
+export const REGION_ORDER: FaceRegion[] = ['nose', 'lips', 'chin', 'jaw', 'malar', 'infraorbital', 'nasolabial', 'temple', 'masseter'];
 
 export const REGION_LABEL: Record<FaceRegion, string> = {
   nose: 'Nariz',
@@ -15,6 +15,8 @@ export const REGION_LABEL: Record<FaceRegion, string> = {
   malar: 'Malar',
   infraorbital: 'Infraorbital',
   nasolabial: 'Sulco nasolabial',
+  temple: 'Têmpora',
+  masseter: 'Masseter',
 };
 
 /** Elipse 2D (frente do rosto) com decaimento suave. */
@@ -60,5 +62,9 @@ export function regionWeights(x: number, y: number, front: number): Record<FaceR
       f,
     chinLower: chin * Math.min(1, Math.max(0, (-0.62 - y) / 0.2)),
   };
-  return { nose, lips, chin, jaw, malar, infraorbital, nasolabial, sub };
+  // Têmpora: acima e atrás do olho, na lateral; masseter: ângulo da mandíbula e bochecha baixa. Ambas laterais.
+  const lateral = Math.min(1, f * 3 + 0.2);
+  const temple = ellipse(ax, y, 0.58, 0.3, 0.14, 0.15) * lateral;
+  const masseter = ellipse(ax, y, 0.6, -0.55, 0.16, 0.2) * lateral;
+  return { nose, lips, chin, jaw, malar, infraorbital, nasolabial, temple, masseter, sub };
 }

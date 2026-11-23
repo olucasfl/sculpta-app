@@ -154,3 +154,14 @@ Um painel "Comparar" com: **Cortina**, **Alternar** (segurar para ver o antes), 
 - Três testes novos (`zone.test.ts`); e2e do simulador passou. Conferido na tela com o modelo real: lábios, queixo e malar (as duas áreas simétricas) ficaram destacados e enquadrados.
 
 **Limites:** o pincel ainda não fica preso à zona (Etapa 5); o destaque é um tom sobre a textura, não um mapa do que já foi alterado (Etapa 4); a região malar do modelo atual cobre sobretudo a área logo abaixo dos olhos, o que deve ser revisto junto com os alvos de deformação.
+
+## 14. Etapa 3 entregue (23/11/2026): painel por procedimento
+
+- **Painel de um procedimento por vez** (`ProcedurePanel.tsx`): formatos prontos, um controle por ajuste, resumo "Maior alteração" e a limitação (recolhida).
+- **Formatos prontos** (`procedureShapes.ts`): lábios (Natural, Definido, Volumoso), malar, mento, mandíbula, olheiras, sulco, têmporas e masseter (Sutil, Moderado, Marcado), nariz não cirúrgico (Dorso mais alto, Ponta mais projetada, Ponta levantada). Cada chip mostra "até X mm". São configuração de interface (fração do limite visual), não indicação clínica.
+- **Milímetros reais:** o worker mede, para cada rosto, o deslocamento máximo real de cada slider e grava em `sliderMaxMm` no `.glb`. O controle mostra o valor em mm, o limite da simulação no fim da barra ("3,2 mm (limite)") e avisa "perto do limite" a partir de 85%. Modelos sem essa medida usam uma tabela de rosto médio (`SLIDER_MAX_MM`, no contrato).
+- **Dois procedimentos novos** (a lista agora tem 9): **Têmporas** (reposição de volume) e **Masseter (toxina)** (afina o terço inferior do rosto, só a forma; o efeito real leva semanas). Região, alvo de deformação e destaque em três lugares que precisam andar juntos: contrato (`sliders.ts`, esquema versão 2), template (`face-assets`) e worker (`bases.py`). O worker passou a gerar 17 controles.
+- **Modelos antigos:** um modelo reconstruído antes desta versão não tem os controles novos; o procedimento aparece esmaecido na lista e o painel diz para refazer a reconstrução. A reconstrução da pessoa 2 foi refeita e já tem os 17 controles e os mm.
+- Testes novos: `procedureShapes.test.ts` (formatos usam só os sliders do procedimento, nenhum nasce no limite, mm), worker (17 alvos, mm entre 0,3 e 20), face-assets. e2e do simulador passou.
+
+**Limites:** a toxina no masseter mostra só a forma final (sem a evolução em semanas); testa, glabela e pés de galinha continuam fora (precisam de rugas); os mm são do modelo (um rosto estimado por 105 pontos) e valores de 1 a 2 mm ficam perto da precisão; a captura da pessoa 1 ainda é o modelo demonstrativo (não tem os procedimentos novos até ser refeita); os formatos prontos ainda não foram revistos por um profissional.

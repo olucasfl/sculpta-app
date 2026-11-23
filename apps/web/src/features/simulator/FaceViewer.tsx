@@ -39,6 +39,8 @@ const REGION_TINT: Record<FaceRegion, string> = {
   malar: '#e09a3c',
   infraorbital: '#56a6d6',
   nasolabial: '#a3a33a',
+  temple: '#c76bd0',
+  masseter: '#d07a4e',
 };
 const REGIONS = Object.keys(REGION_TINT) as FaceRegion[];
 
@@ -53,6 +55,8 @@ export interface ModelInfo {
   hairStyle?: DetectedHair | null;
   /** Cor do cabelo lida da foto. */
   hairColor?: string | null;
+  /** Deslocamento máximo real de cada slider neste rosto, em mm (modelos reconstruídos novos). */
+  sliderMm?: Record<string, number> | null;
 }
 
 export interface ViewerHandle {
@@ -223,6 +227,7 @@ function FaceModel({
       eyes?: { centers: [number, number, number][]; radius: number };
       hairColor?: string;
       hairStyle?: DetectedHair;
+      sliderMaxMm?: Record<string, number>;
       eyeY?: number;
       faceZ?: number;
     };
@@ -239,6 +244,7 @@ function FaceModel({
       textured: !!photoMap,
       hairStyle: extras.hairStyle ?? null,
       hairColor: extras.hairColor ?? null,
+      sliderMm: extras.sliderMaxMm ?? null,
     });
     const hairAttr = geometry.getAttribute('_hair') as THREE.BufferAttribute | undefined;
     const hasHair = !!hairAttr;

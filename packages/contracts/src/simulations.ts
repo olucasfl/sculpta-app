@@ -140,6 +140,21 @@ export const PROCEDURE_PRESETS: ProcedurePreset[] = [
     limitation: 'O resultado depende muito da qualidade da malha nessa região; olheiras de pigmento não são simuladas.',
   },
   {
+    id: 'temple',
+    label: 'Têmporas',
+    description: 'Reposição de volume na região das têmporas.',
+    sliders: ['temple.volume'],
+    limitation: 'Ilustra volume superficial; não representa a musculatura temporal nem a estrutura óssea.',
+  },
+  {
+    id: 'masseter',
+    label: 'Masseter (toxina)',
+    description: 'Afinamento do terço inferior do rosto pela redução do músculo masseter.',
+    sliders: ['masseter.reduction'],
+    limitation:
+      'O efeito real aparece ao longo de semanas e depende da musculatura de cada pessoa; a simulação mostra só uma forma aproximada.',
+  },
+  {
     id: 'nasolabial',
     label: 'Sulco nasolabial',
     description: 'Suavização da dobra entre o nariz e a boca.',
