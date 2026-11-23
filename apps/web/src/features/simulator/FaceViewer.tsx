@@ -276,9 +276,12 @@ function FaceModel({
 
   // Pele: modo leve desliga poros e brilho; a cor da pele vale também na exportação.
   useEffect(() => {
-    skinMix.value = look.light ? 0 : 1;
+    // Modelo com a textura das fotos: sem poros desenhados, sem brilho avermelhado de borda e sem verniz por cima.
+    // A pele já vem da foto; o simulador a escurecia e a deixava alaranjada.
+    const photo = !!mesh.userData.textured;
+    skinMix.value = look.light || photo ? 0 : 1;
     const mat = mesh.material as THREE.MeshPhysicalMaterial;
-    const coat = look.light ? 0 : 0.1;
+    const coat = look.light || photo ? 0 : 0.1;
     if (mat.clearcoat !== coat) {
       mat.clearcoat = coat;
       mat.needsUpdate = true;
@@ -540,14 +543,14 @@ function FaceModel({
       </mesh>
       {eyes && <Eyes eyes={eyes} irisHex={irisColor(look)} />}
       {eyes && <BrowsAndLashes head={mesh} eyes={eyes} browHex={look.browHex} />}
-      {textured && strandsColor && look.hairVisible && hairCoverage && (
+      {textured && strandsColor && look.hairCap && hairCoverage && (
         <Hair
           head={mesh}
           params={{ volume: look.hairVolume, length: look.hairLength, hairline: look.hairline, eyeY: eyeLevel.eyeY, coverage: hairCoverage }}
           hex={strandsColor}
         />
       )}
-      {textured && strandsColor && look.hairVisible && look.hairStrands && (
+      {textured && strandsColor && look.hairStrands && (
         <HairStrands head={mesh} color={strandsColor} density={40 + look.hairVolume * 100} length={0.03 + look.hairLength * 0.12} eyeY={eyeLevel.eyeY} faceZ={eyeLevel.faceZ} />
       )}
       {look.hairVisible && !textured && (

@@ -390,6 +390,7 @@ def deform_ears(V, F, masks, views, mirror):
     yaws = np.array([v["rot"][0] for v in views])
     nose = np.asarray(masks["nose"], int)
     used = {}
+    fallback: set[str] = set()
     for key, pick in (
         ("left_ear", np.argmin),
         ("right_ear", np.argmax),
@@ -411,19 +412,25 @@ def deform_ears(V, F, masks, views, mirror):
         A, tt, sc0, iou = es.fit_affine_to_mask(out_a, mask)
         hull_area = cv2.contourArea(cv2.convexHull(out_a.astype(np.float32)))
         ratio = mask.sum() / max(hull_area, 1.0)
-        log(f"  orelha {key}: vista {names[i]}, IoU {iou:.2f}, máscara/malha {ratio:.2f}x")
+        shift = float(np.hypot(dx, dy)) / max(size, 1.0)
+        log(f"  orelha {key}: vista {names[i]}, IoU {iou:.2f}, máscara/malha {ratio:.2f}x, deslocamento {shift:.2f}x")
+        # Trava de plausibilidade: o alinhamento não pode sair do lugar da orelha (numa pessoa real escorregou 0,5x para o
+        # pescoço e a marcação pegou orelha mais pescoço, 3,5x a área) e a marcação tem que ser do tamanho de uma orelha.
+        # Se não fizer sentido, a orelha NÃO é deformada nem recebe cor da foto: fica de tom de pele liso (nunca "quebrada").
+        if shift > 0.35 or iou < 0.75 or not 0.6 < ratio < 2.4:
+            log("    orelha duvidosa: mantém a orelha do modelo, com tom de pele liso")
+            fallback.add(key)
+            used[key] = i
+            continue
         p1 = ea.apply_similarity(pix[e], cen, dx, dy, scl, rot)
-        if iou >= 0.7 and 0.6 < ratio < 2.6:
-            p1 = (p1 - sc0) @ A.T + sc0 + tt
-        else:
-            log("    segmentação duvidosa: só alinhamento rígido")
+        p1 = (p1 - sc0) @ A.T + sc0 + tt
         x = (p1[:, 0] / H_ - t_[0]) / (mirror * s_)
         y = -(p1[:, 1] / H_ - t_[1]) / s_
         newcam = cam[e].copy()
         newcam[:, 0], newcam[:, 1] = x, y
         V[e] = newcam @ R
         used[key] = i
-    return V, used
+    return V, used, fallback
 
 
 def load_masks():
@@ -473,8 +480,14 @@ def calibrated_eyes(tex, have, fv, Pv, ys, xs, mirror):
         yy, xx = np.mgrid[0:h, 0:w]
         dist = np.hypot(xx - c[0], yy - c[1])
         # cores da pessoa: íris = miolo do disco sem a pupila escura nem o reflexo; esclera = parte clara da abertura
-        disc = (dist < 0.65 * r) & (dist > 0.3 * r) & (lum > 30) & (lum < 175)
-        iris = np.median(img[disc], axis=0) if disc.sum() > 20 else np.array([45.0, 70.0, 100.0])
+        disc = (dist < 0.6 * r) & (dist > 0.28 * r) & (lum > 20)
+        if disc.sum() > 20:
+            # a íris na foto mistura reflexo da janela e esclera nas bordas (tudo acinzentado): vale o miolo mais escuro,
+            # a cor própria da íris sob a pálpebra
+            lim = np.percentile(lum[disc], 55)
+            iris = np.median(img[disc & (lum <= lim)], axis=0)
+        else:
+            iris = np.array([45.0, 70.0, 100.0])
         bright = (sd > 1) & (dist > 1.15 * r)
         if bright.sum() > 15:
             cut = np.percentile(lum[bright], 60)
@@ -527,7 +540,7 @@ def views_from_fit(fit_views):
 
 def bake(V, views, F, masks, mirror, out_dir=None):
     """Textura e malha final. Devolve dict(tex, Vx, Nx, Ux, Fx, V, ear_view). `out_dir` só liga arquivos de depuração."""
-    V, ear_view = deform_ears(V, F, masks, views, mirror)
+    V, ear_view, ear_fallback = deform_ears(V, F, masks, views, mirror)
     N = fp.vertex_normals(V, F)
 
     Vx, Nx, Ux, Fx, Dx, src = build_mesh(V, N, F, masks)
@@ -747,6 +760,19 @@ def bake(V, views, F, masks, mirror, out_dir=None):
 
     if OPTS["calibrated_eyes"]:
         tex, have = calibrated_eyes(tex, have, fv, Pv, ys, xs, mirror)
+
+    # orelhas em que a marcação na foto não fez sentido: tom de pele liso (mediana da pele do rosto) com leve variação
+    if ear_fallback:
+        zone = skin_zone if skin_zone.any() else valid
+        skin_med = np.median(tex[zone & (have > 0)], axis=0)
+        for name, key, side in (("esquerda", "left_ear", xs < 0.76 * TEX), ("direita", "right_ear", xs >= 0.76 * TEX)):
+            if key not in ear_fallback:
+                continue
+            sel = (ys >= HEAD_V * TEX) & (xs >= 0.5 * TEX) & side
+            shade = 1 + 0.05 * noise[ys[sel], xs[sel]]
+            tex[ys[sel], xs[sel]] = np.clip(skin_med[None, :] * shade[:, None], 0, 255).astype(np.uint8)
+            have[ys[sel], xs[sel]] = 255
+            log(f"  orelha {name}: tom de pele liso (a marcação na foto não era confiável)")
 
     # ---- olhos procedurais (esclera, íris, anel límbico, pupila); a cor da íris vem da foto frontal
     eye_px = (ys >= HEAD_V * TEX) & (xs < 0.5 * TEX)
