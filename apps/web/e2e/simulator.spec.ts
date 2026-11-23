@@ -28,10 +28,10 @@ async function openSimulator(page: Page) {
 }
 
 /** Arrasta o ponteiro sobre o rosto (centro do canvas) em um pequeno zigue-zague. */
-async function strokeOnFace(page: Page) {
+async function strokeOnFace(page: Page, yFraction = 0.46) {
   const box = (await page.locator('canvas').boundingBox())!;
   const cx = box.x + box.width / 2;
-  const cy = box.y + box.height * 0.46;
+  const cy = box.y + box.height * yFraction;
   await page.mouse.move(cx - 30, cy);
   await page.mouse.down();
   for (let i = 0; i <= 12; i++) await page.mouse.move(cx - 30 + i * 5, cy + (i % 2 ? 6 : -6), { steps: 2 });
@@ -40,7 +40,7 @@ async function strokeOnFace(page: Page) {
 
 test('pincel: modelar, desfazer, salvar com a escultura e recarregar', async ({ page }, info) => {
   test.skip(info.project.name !== 'desktop-1440x900', 'o fluxo do pincel é verificado no desktop; os outros viewports têm as capturas de tela');
-  test.setTimeout(150_000); // o 3D roda em WebGL por software: com o recarregamento o fluxo passa de 60 s
+  test.setTimeout(240_000); // o 3D roda em WebGL por software: com o recarregamento o fluxo passa de 60 s
   await openSimulator(page);
   const dir = join('e2e', 'screenshots', info.project.name);
   mkdirSync(dir, { recursive: true });
@@ -52,7 +52,15 @@ test('pincel: modelar, desfazer, salvar com a escultura e recarregar', async ({ 
   await expect(clear).toBeDisabled();
   await page.screenshot({ path: join(dir, '20-simulador-antes.png') });
 
-  await strokeOnFace(page);
+  // O pincel só age dentro da zona do procedimento escolhido: escolhe o nariz (a câmera enquadra a zona)
+  await page.getByRole('button', { name: 'Nariz', exact: true }).click();
+  await page.waitForTimeout(4_000);
+  await strokeOnFace(page, 0.85); // bem abaixo da zona do nariz: nada muda
+  await expect(undo).toBeDisabled();
+  await expect(clear).toBeDisabled();
+  await expect(page.getByText('Não salvo')).toHaveCount(0);
+
+  await strokeOnFace(page); // no centro, que é o nariz
   await expect(undo).toBeEnabled();
   await expect(clear).toBeEnabled();
   await expect(page.getByText('Não salvo')).toBeVisible();

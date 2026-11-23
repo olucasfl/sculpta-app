@@ -176,3 +176,14 @@ Um painel "Comparar" com: **Cortina**, **Alternar** (segurar para ver o antes), 
 **Verificado na tela** (modelo real da pessoa 2, página de teste): colocar o ponto no lábio sem a câmera girar, arrastar a bolinha (o ponto e o relevo no mapa seguiram) e o mapa com legenda. **Não verificado:** a tela completa do simulador (pede login); os controles do painel dos pontos foram montados e tipados, mas não vistos funcionando juntos.
 
 **Limites:** os pontos só sobem a pele (não há ponto de "reduzir"); a posição de toque usa a malha original (um ponto sobre uma área muito deformada pode cair um pouco fora); os pontos não são editáveis depois de salvar a versão; o alcance e a quantidade são valores de interface, não dose.
+
+## 16. Etapa 5 entregue (23/11/2026): modelagem fina presa à zona
+
+- **O pincel agora é o "Modelagem fina" do procedimento escolhido:** só adiciona, reduz ou suaviza dentro da zona do procedimento (os pesos `_REGION_*` multiplicam o efeito, então a borda da zona é suave). Fora dela nada muda. A **borracha** continua valendo em qualquer lugar, para sempre ser possível desfazer.
+- **Ver a zona enquanto modela:** a zona fica destacada durante o pincel e o **anel do pincel fica cinza e apagado** fora dela. O painel traz o nome do procedimento ("Modelagem fina · Lábios") e diz isso em uma frase.
+- **Traço fora da zona não conta:** não cria entrada no desfazer nem marca "Não salvo".
+- Modelos sem as regiões continuam com o pincel livre (fallback), com os mesmos tetos de mm da Etapa 1.
+- Testes: dois novos (preso à zona e borracha livre); o e2e do pincel agora escolhe o Nariz, confirma que um traço longe da zona não muda nada e depois um traço sobre a zona funciona, desfaz, salva e recarrega.
+- Verificado na tela com o modelo real: um traço longo sobre a boca e as bochechas pintou só a zona dos lábios no mapa de alterações.
+
+**Limites:** o pincel não tem mais "livre" por escolha (decisão do plano); a zona é a região do modelo e não um recorte anatômico (a região malar, por exemplo, cobre sobretudo a área logo abaixo dos olhos); a posição do toque usa a malha original (em áreas muito deformadas o toque pode cair um pouco fora).

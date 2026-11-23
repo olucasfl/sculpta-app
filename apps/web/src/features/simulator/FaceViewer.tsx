@@ -1,7 +1,7 @@
 import { Environment, Lightformer, OrbitControls, useGLTF } from '@react-three/drei';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import type { FaceRegion, SculptData, SimulationParams } from '@sim/contracts';
-import { forwardRef, Suspense, type ComponentRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { forwardRef, Suspense, type ComponentRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { DEFAULT_APPEARANCE, irisColor, skinColor, type Appearance } from './appearance';
 import { BrowsAndLashes, Eyes, Hair } from './FaceExtras';
@@ -34,6 +34,8 @@ const SKIN = new THREE.Color('#d6c0b0');
 const ACCENT = new THREE.Color('#0f8f89');
 // zona do procedimento escolhido: o tom multiplica a textura, então precisa ser claro e saturado para aparecer sobre a pele
 const ZONE = new THREE.Color('#5ff0e0');
+/** Cor do anel do pincel por ferramenta: verde-azulado adiciona, âmbar reduz, azul suaviza, cinza apaga. */
+const TOOL_COLORS = { add: '#0f8f89', reduce: '#d97706', smooth: '#3b82f6', erase: '#6b7280' } as const;
 const REGION_TINT: Record<FaceRegion, string> = {
   nose: '#5b8def',
   lips: '#d9577a',
@@ -92,6 +94,8 @@ interface Props {
   placing?: FaceRegion[] | null;
   /** Mapa de alterações: cor pelo quanto a pele saiu do lugar (mm). */
   heatmap?: boolean;
+  /** Regiões em que o pincel pode agir (a zona do procedimento); null = qualquer lugar. */
+  brushZone?: FaceRegion[] | null;
   /** Posição do novo ponto; null quando o toque caiu fora da zona. */
   onPlacePoint?: (pos: [number, number, number] | null) => void;
   onMovePoint?: (id: string, pos: [number, number, number]) => void;
@@ -182,6 +186,7 @@ function FaceModel({
   selectedPointId,
   placing,
   heatmap,
+  brushZone,
   onPlacePoint,
   onMovePoint,
   onSelectPoint,
@@ -205,8 +210,7 @@ function FaceModel({
   const ringMaterial = useRef<THREE.MeshBasicMaterial>(null);
   // a cor do anel diz o que o pincel faz: verde-azulado adiciona, âmbar reduz, azul suaviza, cinza apaga
   useEffect(() => {
-    const colors = { add: '#0f8f89', reduce: '#d97706', smooth: '#3b82f6', erase: '#6b7280' } as const;
-    ringMaterial.current?.color.set(brush ? colors[brush.tool] : colors.add);
+    ringMaterial.current?.color.set(brush ? TOOL_COLORS[brush.tool] : TOOL_COLORS.add);
     invalidate();
   }, [brush?.tool]); // eslint-disable-line react-hooks/exhaustive-deps
   const lastStamp = useRef<THREE.Vector3 | null>(null);
@@ -418,6 +422,25 @@ function FaceModel({
   useEffect(() => {
     zoneCache.current.clear();
   }, [mesh]);
+  /** Pesos da zona (maior peso entre as regiões); null se o modelo não tem essas regiões. */
+  const zoneOf = useCallback(
+    (regions: FaceRegion[]): Float32Array | null => {
+      const key = regions.join(',');
+      let w = zoneCache.current.get(key) ?? null;
+      if (!w) {
+        const attrs = regions.map((r) => regionAttrs.get(r)).filter((a): a is THREE.BufferAttribute => !!a);
+        if (attrs.length === 0) return null;
+        const count = mesh.geometry.getAttribute('position').count;
+        w = new Float32Array(count);
+        for (let v = 0; v < count; v++) for (const a of attrs) w[v] = Math.max(w[v]!, a.getX(v));
+        zoneCache.current.set(key, w);
+      }
+      return w;
+    },
+    [mesh, regionAttrs],
+  );
+  const brushZoneRef = useRef<FaceRegion[] | null>(null);
+  brushZoneRef.current = brushZone ?? null;
   useEffect(() => {
     if (!runtime) return;
     const pos = mesh.geometry.getAttribute('position');
@@ -427,23 +450,11 @@ function FaceModel({
       runtime.setLayer(null);
       return;
     }
-    const zoneOf = (regions: FaceRegion[]) => {
-      const key = regions.join(',');
-      let w = zoneCache.current.get(key) ?? null;
-      if (!w) {
-        const attrs = regions.map((r) => regionAttrs.get(r)).filter((a): a is THREE.BufferAttribute => !!a);
-        if (attrs.length === 0) return null;
-        w = new Float32Array(pos.count);
-        for (let v = 0; v < pos.count; v++) for (const a of attrs) w[v] = Math.max(w[v]!, a.getX(v));
-        zoneCache.current.set(key, w);
-      }
-      return w;
-    };
     const layer = new Float32Array(pos.count * 3);
     pointsLayer(pos.array as ArrayLike<number>, nor.array as ArrayLike<number>, (p) => zoneOf(p.regions), list, layer);
     runtime.setLayer(layer);
     invalidate();
-  }, [points, runtime, mesh, regionAttrs, invalidate]);
+  }, [points, runtime, mesh, zoneOf, invalidate]);
 
   useEffect(() => {
     if (!sculpt) setHover(null);
@@ -593,10 +604,18 @@ function FaceModel({
   }
 
   /** Anel que mostra o tamanho do pincel sobre a superfície. */
-  function placeRing(point: THREE.Vector3, normal?: THREE.Vector3) {
+  function placeRing(point: THREE.Vector3, normal?: THREE.Vector3, face?: { a: number; b: number; c: number } | null) {
     const r = ring.current;
     const b = brushRef.current;
     if (!r || !b) return;
+    // fora da zona do procedimento o anel fica cinza e apagado: ali o pincel não faz nada
+    const m = ringMaterial.current;
+    if (m) {
+      const zone = brushZoneRef.current ? zoneOf(brushZoneRef.current) : null;
+      const out = !!zone && !!face && b.tool !== 'erase' && (zone[face.a]! + zone[face.b]! + zone[face.c]!) / 3 < 0.15;
+      m.color.set(out ? '#9ca3af' : TOOL_COLORS[b.tool]);
+      m.opacity = out ? 0.5 : 0.95;
+    }
     const n = normal ?? new THREE.Vector3(0, 0, 1);
     r.visible = true;
     r.position.copy(point).addScaledVector(n, 0.0008);
@@ -661,7 +680,7 @@ function FaceModel({
     const pressureOf = (ev: PointerEvent) => (ev.pointerType === 'pen' ? Math.min(1.6, Math.max(0.1, (ev.pressure || 0.5) * 1.6)) : 1);
     const stamp = (p: THREE.Vector3, ev: PointerEvent) => {
       const cur = brushRef.current;
-      if (cur) runtime.stamp(p, { ...cur, pressure: pressureOf(ev) });
+      if (cur) runtime.stamp(p, { ...cur, pressure: pressureOf(ev) }, brushZoneRef.current ? zoneOf(brushZoneRef.current) : null);
     };
     const first = e.point.clone();
     stamp(first, e.nativeEvent);
@@ -676,7 +695,7 @@ function FaceModel({
       const hit = ray.intersectObject(mesh, false)[0];
       const cur = brushRef.current;
       if (!hit || !cur) return;
-      placeRing(hit.point, hit.face?.normal);
+      placeRing(hit.point, hit.face?.normal, hit.face);
       // Um toque a cada fração do raio, para a força não depender de quantos eventos o aparelho manda.
       if (lastStamp.current && hit.point.distanceTo(lastStamp.current) < cur.radius * 0.22) return;
       stamp(hit.point, ev);
@@ -700,7 +719,7 @@ function FaceModel({
   function brushHover(e: ThreeEvent<PointerEvent>) {
     if (!brushRef.current || dragging.current || !e.face) return;
     e.stopPropagation();
-    placeRing(e.point, e.face.normal);
+    placeRing(e.point, e.face.normal, e.face);
   }
 
   function sculptHover(e: ThreeEvent<PointerEvent>) {

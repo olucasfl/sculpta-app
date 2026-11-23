@@ -81,12 +81,17 @@ export function applyBrush(
   beforeChange?: (vertices: number[]) => void,
   /** Quanto cada vértice já recebeu NESTE traço (com sinal, ao longo da normal). Zere ao soltar o mouse. */
   stroke?: Float32Array,
+  /**
+   * Pesos da zona do procedimento (0 a 1 por vértice). Com `zone`, o pincel só age onde há peso (adicionar, reduzir e
+   * suavizar); a borracha continua valendo em qualquer lugar, para sempre poder desfazer o que foi modelado.
+   */
+  zone?: ArrayLike<number> | null,
 ): number[] {
   const changed = new Set<number>();
   const centers: [number, number, number][] = [[point[0], point[1], point[2]]];
   if (params.symmetry) centers.push([-point[0], point[1], point[2]]);
   const acc = stroke ?? new Float32Array(mesh.positions.length / 3);
-  for (const c of centers) stamp(mesh, offsets, c, params, changed, acc, beforeChange);
+  for (const c of centers) stamp(mesh, offsets, c, params, changed, acc, zone ?? null, beforeChange);
   return [...changed];
 }
 
@@ -97,6 +102,7 @@ function stamp(
   p: BrushParams,
   changed: Set<number>,
   stroke: Float32Array,
+  zone: ArrayLike<number> | null,
   beforeChange?: (vertices: number[]) => void,
 ) {
   const { positions, normals, neighbors } = mesh;
@@ -114,8 +120,11 @@ function stamp(
     const dz = positions[i + 2]! + offsets[i + 2]! - c[2];
     const d2 = dx * dx + dy * dy + dz * dz;
     if (d2 >= r2) continue;
+    // preso à zona: fora dela nada muda; dentro, o peso da zona suaviza a borda (a borracha ignora a zona)
+    const zw = zone && p.tool !== 'erase' ? (zone[v] ?? 0) : 1;
+    if (zw <= 0.02) continue;
     inside.push(v);
-    weights.push(falloff(Math.sqrt(d2), p.radius));
+    weights.push(falloff(Math.sqrt(d2), p.radius) * Math.min(1, zw * 1.5));
   }
 
   beforeChange?.(inside);

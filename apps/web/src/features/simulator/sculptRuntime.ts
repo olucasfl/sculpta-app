@@ -23,7 +23,8 @@ export interface SculptState {
 
 export interface SculptRuntime {
   vertexCount: number;
-  stamp(point: THREE.Vector3, params: BrushParams): void;
+  /** `zone`: pesos da zona do procedimento (o pincel só age onde há peso); null = sem restrição. */
+  stamp(point: THREE.Vector3, params: BrushParams, zone?: ArrayLike<number> | null): void;
   endStroke(): void;
   undo(): void;
   redo(): void;
@@ -75,6 +76,7 @@ export function createSculptRuntime(
   let revision = 0;
 
   const strokeAcc = new Float32Array(n);
+  let strokeTouched = false;
   const maxLength = () => {
     let m = 0;
     for (let v = 0; v < n; v++) m = Math.max(m, Math.hypot(display[v * 3]!, display[v * 3 + 1]!, display[v * 3 + 2]!));
@@ -111,15 +113,18 @@ export function createSculptRuntime(
 
   return {
     vertexCount: n,
-    stamp(point, params) {
-      const changed = applyBrush(mesh, offsets, [point.x, point.y, point.z], params, (vertices) => history.touch(offsets, vertices), strokeAcc);
+    stamp(point, params, zone) {
+      const changed = applyBrush(mesh, offsets, [point.x, point.y, point.z], params, (vertices) => history.touch(offsets, vertices), strokeAcc, zone);
       if (changed.length === 0) return;
+      strokeTouched = true;
       syncDisplay(changed);
       refreshNormals(changed);
       touch();
     },
     endStroke() {
       strokeAcc.fill(0); // o próximo traço tem o seu próprio teto
+      if (!strokeTouched) return; // traço fora da zona: nada mudou, não conta como alteração
+      strokeTouched = false;
       history.endStroke();
       revision++;
       emit();

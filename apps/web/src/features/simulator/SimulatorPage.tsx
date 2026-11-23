@@ -310,7 +310,7 @@ export function SimulatorPage() {
           ref={viewer}
           url={modelUrl}
           params={history.live}
-          highlight={highlight}
+          highlight={highlight ?? (mode === 'brush' ? (presetRegions[0] ?? null) : null)}
           showRegions={showRegions}
           wireframe={wireframe}
           compare={compare}
@@ -323,6 +323,7 @@ export function SimulatorPage() {
           selectedPointId={selectedPoint}
           placing={placingRegions}
           heatmap={heatmap}
+          brushZone={mode === 'brush' ? presetRegions : null}
           onPlacePoint={onPlacePoint}
           onMovePoint={onMovePoint}
           onSelectPoint={setSelectedPoint}
@@ -440,6 +441,7 @@ export function SimulatorPage() {
             brush={brushSettings}
             onChange={setBrushSettings}
             state={sculptState}
+            zoneLabel={preset.label}
             onUndo={() => viewer.current?.undoSculpt()}
             onRedo={() => viewer.current?.redoSculpt()}
             onClear={() => viewer.current?.clearSculpt()}

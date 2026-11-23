@@ -189,4 +189,37 @@ describe('pincel de escultura', () => {
     for (let k = 0; k < 100; k++) applyBrush(m, off, [0, 0, 0], { ...base, strength: 0.03 }, undefined, stroke);
     expect(off[center * 3 + 2]).toBeLessThan(0.0002);
   });
+
+  it('preso à zona: fora dela nada muda, dentro o peso da zona suaviza a borda', () => {
+    const m = grid();
+    const zone = new Float32Array(25); // só a coluna x = 0..1 (índices 2 e 3 de cada linha) faz parte da zona
+    for (let y = 0; y < 5; y++) {
+      zone[y * 5 + 2] = 1;
+      zone[y * 5 + 3] = 0.2;
+    }
+    const off = new Float32Array(75);
+    const changed = applyBrush(m, off, [0, 0, 0], { ...base, radius: 0.05 }, undefined, undefined, zone);
+    expect(changed.length).toBeGreaterThan(0);
+    for (let y = 0; y < 5; y++) {
+      expect(off[(y * 5 + 0) * 3 + 2], `x=-2 fora da zona (linha ${y})`).toBe(0);
+      expect(off[(y * 5 + 1) * 3 + 2]).toBe(0);
+      expect(off[(y * 5 + 4) * 3 + 2]).toBe(0);
+    }
+    expect(off[12 * 3 + 2]).toBeGreaterThan(off[13 * 3 + 2]!); // centro da zona > borda da zona
+    expect(off[13 * 3 + 2]).toBeGreaterThan(0);
+  });
+
+  it('a borracha apaga em qualquer lugar, mesmo fora da zona', () => {
+    const m = grid();
+    const off = new Float32Array(75);
+    applyBrush(m, off, [0, 0, 0], { ...base, radius: 0.05 }); // modelou sem zona
+    const before = off[10 * 3 + 2]!; // x = -2, y = 0
+    expect(before).toBeGreaterThan(0);
+    const zone = new Float32Array(25); // zona vazia
+    applyBrush(m, off, [0, 0, 0], { ...base, radius: 0.05, tool: 'erase' }, undefined, undefined, zone);
+    expect(off[10 * 3 + 2]).toBeLessThan(before);
+    const stay = new Float32Array(75);
+    applyBrush(m, stay, [0, 0, 0], { ...base, radius: 0.05 }, undefined, undefined, zone);
+    expect(stay.every((x) => x === 0)).toBe(true); // adicionar com a zona vazia não faz nada
+  });
 });

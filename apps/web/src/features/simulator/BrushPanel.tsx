@@ -19,17 +19,24 @@ interface Props {
   brush: BrushSettings;
   onChange: (b: BrushSettings) => void;
   state: SculptState;
+  /** Nome do procedimento escolhido: o pincel só age dentro da zona dele. */
+  zoneLabel?: string | null;
   onUndo: () => void;
   onRedo: () => void;
   onClear: () => void;
 }
 
 /** Ferramentas do pincel de escultura. O traço vale na hora; cada traço pode ser desfeito. */
-export function BrushPanel({ brush, onChange, state, onUndo, onRedo, onClear }: Props) {
+export function BrushPanel({ brush, onChange, state, zoneLabel, onUndo, onRedo, onClear }: Props) {
   return (
     <section aria-label="Pincel de escultura" className="mb-4 border-b border-line pb-4">
-      <h2 className="font-semibold">Pincel</h2>
-      <p className="mb-3 text-xs text-muted">Arraste sobre o rosto com o mouse, a caneta ou o dedo. Fora do rosto, a câmera gira. Com caneta, a pressão muda a força.</p>
+      <h2 className="font-semibold">Modelagem fina{zoneLabel ? ` · ${zoneLabel}` : ''}</h2>
+      <p className="mb-3 text-xs text-muted">
+        {zoneLabel
+          ? 'O pincel só age dentro da área destacada do procedimento; fora dela o anel fica cinza e nada muda. A borracha vale em qualquer lugar. '
+          : 'Arraste sobre o rosto com o mouse, a caneta ou o dedo. '}
+        Fora do rosto, a câmera gira. Com caneta, a pressão muda a força.
+      </p>
 
       <div role="group" aria-label="Ferramenta" className="grid grid-cols-2 gap-1.5">
         {TOOLS.map((t) => (
