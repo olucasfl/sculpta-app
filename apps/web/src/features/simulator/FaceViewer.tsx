@@ -569,11 +569,11 @@ function FaceModel({
         <HairStrands
           head={mesh}
           color={look.hairColorHex ?? strandsColor}
-          density={40 + look.hairVolume * 100}
+          density={0.6 + look.hairVolume * 0.8}
           length={0.05}
           style={strandStyle}
           photoDirection={look.hairModel === 'auto'}
-          colorMix={look.hairColorHex ? 0.2 : 0.6}
+          colorMix={look.hairColorHex ? 0.1 : 0.35}
           eyeY={eyeLevel.eyeY}
           faceZ={eyeLevel.faceZ}
         />
@@ -612,6 +612,7 @@ function Rig({
     if (!mesh?.morphTargetInfluences) return;
     const src = original ? zeros : current;
     for (let i = 0; i < src.length; i++) mesh.morphTargetInfluences[i] = src[i]!;
+    (mesh.userData.hairSync as ((original: boolean) => void) | undefined)?.(original); // o cabelo acompanha a cabeça
   };
 
   useEffect(() => {

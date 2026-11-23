@@ -159,3 +159,16 @@ Script de conferência: `scripts/hair_style.py` (imprime o estilo de cada captur
 - Fios não entram na cabeça (elipsoide + cilindros do maxilar e do pescoço) e não caem na frente do rosto; a franja só cobre a testa.
 
 **Limites:** é uma representação visual de fios (linhas finas), não o penteado real; cacheado e comprido são aproximações; não há ombros, então cabelo muito comprido cai reto atrás do pescoço; só 2 pessoas (ambas de cabelo curto e escuro) foram usadas na calibração do detector; cabelo da cor da parede, boné ou roupa da cor do cabelo podem enganar a leitura (por isso existem os modelos para trocar). Reconstruções antigas não têm `hairStyle`; é preciso refazer a captura (ou reprocessar) para ler o cabelo.
+
+## 15. Cabelo em mechas, coerente e que acompanha a modelagem (23/11/2026)
+
+**Problemas vistos na tela:** fios finos "de arame" duros e escuros, tufo levantado na coroa, fios soltos e bagunçados, cabelo comprido caindo na frente do rosto e cabelo que ficava parado como um capacete quando a cabeça era modelada.
+
+**O que mudou**
+- **Mechas em vez de linhas:** cada guia vira uma fita que olha para a câmera (`hairLocks.ts`), com espessura, ponta afinada, **onda** (frentes de onda comuns a mechas vizinhas), **volume em camadas** e abertura nas laterais para o cabelo comprido. O sombreador (`hairMaterial.ts`) desenha fios finos dentro da fita, luz tipo Kajiya-Kay com dois brilhos deslocados (Scheuermann 2004), raízes e camadas internas mais escuras e pontas mais claras. Poucos fios soltos (linhas) dão a borda macia.
+- **Fluxo coerente:** o fluxo a partir da coroa deixou de ter singularidade (era a origem do tufo): perto da coroa o cabelo vai para trás e a transição é suave; a risca é uma transição suave (`tanh`), não um corte; o ruído por fio caiu e é quase só lateral; o campo de direção lido da foto é mais suave e só vale onde há direção clara.
+- **Fios colados na cabeça real:** a colisão agora usa a malha da cabeça (grade espacial dos vértices e suas normais), não um elipsoide. Fios curtos deitam na superfície; os compridos nunca entram na pele, e o cabelo cai ao lado do rosto, não na frente dele.
+- **Cabelo acompanha a modelagem (`hairDeform.ts`):** cada ponto do cabelo se prende ao vértice da cabeça mais próximo, com peso 1 colado na pele e menor nas pontas soltas. Antes de cada desenho, o cabelo recebe o mesmo deslocamento que a cabeça recebeu dos sliders (morph targets) e do pincel (escultura), e volta ao lugar no "antes". Não é física: o cabelo não balança nem se reorganiza; segue a forma por deslocamento ponderado.
+- Modelos: ondulado para os femininos médio e longo e leve nos masculinos médio e longo; o automático separa onda (cacho leve) de cacho (acima de meio cacheado).
+
+**Limites:** verificado na tela com os dois modelos reais e os sliders de rosto; o pincel usa o mesmo caminho (`aSculpt`) e está coberto por teste, mas não foi exercitado com o mouse. A leitura do cabelo foi calibrada só em duas pessoas de cabelo curto e escuro. Cabelo comprido pesa em computadores sem placa de vídeo.

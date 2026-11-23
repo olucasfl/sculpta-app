@@ -57,3 +57,36 @@ describe('fios com estilo', () => {
     expect(right).toBeGreaterThan(s.strands * 0.3);
   });
 });
+
+describe('mechas', () => {
+  const pos = [-0.05, 0.1, -0.05, 0.05, 0.1, -0.05, 0.05, 0.1, 0.05, -0.05, 0.1, 0.05];
+  const nor = [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0];
+  const idx = [0, 1, 2, 0, 2, 3];
+  const hair = [1, 1, 1, 1];
+
+  it('monta fitas válidas, com cor e índices dentro do limite', async () => {
+    const { buildLocks } = await import('./hairLocks');
+    const st = { ...resolveStyle('f-medio', 1, null)! };
+    const paths: import('./hairStrands').StrandPath[] = [];
+    const r = buildStrands(pos, nor, idx, hair, { density: 4, length: 0.2, style: st, lockMode: true, segments: 12, seed: 4, eyeY: 0, faceZ: 0.06, onStrand: (s) => paths.push(s) });
+    expect(paths.length).toBe(r.strands);
+    const g = buildLocks(paths, r.head, { base: [0.1, 0.05, 0.03], wave: st.wave ?? 0, puff: st.puff, seed: 2 });
+    expect(g.locks).toBe(paths.length);
+    expect(g.position.every(Number.isFinite)).toBe(true);
+    expect(g.color.every((x) => x >= 0 && x <= 1)).toBe(true);
+    const nVerts = g.position.length / 3;
+    expect(Math.max(...Array.from(g.index))).toBeLessThan(nVerts);
+    expect(g.index.length).toBe((nVerts / 2 - g.locks) * 6);
+  });
+
+  it('o fluxo perto da coroa não gera fios levantados (sem tufo)', () => {
+    const st = { top: 0.04, side: 0.012, back: 0.012, fringe: 0, curl: 0, puff: 0, comb: 0.5 };
+    const s = buildStrands(pos, nor, idx, hair, { density: 40, length: 0.04, style: st, seed: 9, segments: 6 });
+    let up = 0;
+    for (let i = 0; i < s.strands; i++) {
+      const o = i * 6 * 6;
+      if (s.positions[o + 5 * 6 + 4]! > s.positions[o + 1]! + 0.012) up++; // ponta bem acima da raiz
+    }
+    expect(up).toBeLessThan(s.strands * 0.05);
+  });
+});

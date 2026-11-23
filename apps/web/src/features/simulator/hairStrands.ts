@@ -28,6 +28,31 @@ export interface StrandParams {
   photoDirection?: boolean;
   /** Peso da cor lida da foto sobre a cor base, de 0 a 1 (padrão 0,6). */
   colorMix?: number;
+  /** Modo mechas: não reduz a densidade pelo comprimento e entrega cada fio inteiro em `onStrand`. */
+  lockMode?: boolean;
+  onStrand?: (s: StrandPath) => void;
+}
+
+/** Caminho de um fio (do couro cabeludo à ponta), para montar mechas. */
+export interface StrandPath {
+  pts: number[][];
+  /** Cor lida da foto (linear), ou null. */
+  rgb: [number, number, number] | null;
+  len: number;
+  /** 1 no alto da cabeça, 0 nas laterais baixas. */
+  tHigh: number;
+  front: boolean;
+}
+
+/** Cabeça aproximada usada na colisão (elipsoide da calota e cilindros do maxilar e do pescoço). */
+export interface HeadShape {
+  hx: number;
+  hy: number;
+  hz: number;
+  cy: number;
+  cz: number;
+  yb: number;
+  top: number;
 }
 
 export interface StrandStyle {
@@ -48,6 +73,8 @@ export interface StrandStyle {
   sweep?: number;
   /** 0 a 1: penteado para trás. */
   comb?: number;
+  /** 0 a 1: ondulado (ondas largas, estilo cabelo ondulado). */
+  wave?: number;
   /** 0 a 1: cabelo levantado no alto (topete, arrepiado). */
   lift?: number;
 }
@@ -61,6 +88,9 @@ export interface PhotoImage {
 export interface Strands {
   /** Cor (RGB, 0 a 1) por vértice de segmento, lida da foto; presente só quando há `photo`. */
   colors?: Float32Array;
+  head: HeadShape;
+  /** Vértice da cabeça mais próximo de um ponto e a distância até ele (m); índice −1 se nenhum está perto. */
+  attach: (q: number[]) => [number, number];
   /** Pares de pontos (início e fim de cada segmento), 6 floats por segmento. */
   positions: Float32Array;
   /** Um tom (0,6 a 1,1) por vértice de segmento, para variar o brilho dos fios. */
@@ -93,7 +123,7 @@ const norm = (v: number[]) => {
 
 
 /** Campo de orientação (tensor de estrutura): direção dos fios (sem sentido) e o quanto ela é confiável (0 a 1). */
-export function orientationField(img: PhotoImage, radius = 5) {
+export function orientationField(img: PhotoImage, radius = 10) {
   const { w, h, rgba } = img;
   const lum = new Float32Array(w * h);
   for (let i = 0; i < w * h; i++) lum[i] = 0.299 * rgba[i * 4]! + 0.587 * rgba[i * 4 + 1]! + 0.114 * rgba[i * 4 + 2]!;
@@ -172,7 +202,7 @@ export function buildStrands(
   const segs = p.segments ?? (st ? (st.curl > 0.4 ? 12 : Math.max(6, Math.min(14, Math.round(maxLen * 70)))) : 6);
   const rnd = mulberry32(p.seed ?? 1);
   // cabelo comprido tem muito mais segmentos por fio: menos fios dão o mesmo efeito e pesam menos
-  const density = p.density * (st ? Math.max(0.35, 1 - maxLen * 1.2) : 1);
+  const density = p.density * (st && !p.lockMode ? Math.max(0.35, 1 - maxLen * 1.2) : 1);
   const nv = pos.length / 3;
 
   // Coroa: o ponto mais alto entre os vértices com cabelo, um pouco para trás. O fluxo irradia dela.
@@ -201,27 +231,43 @@ export function buildStrands(
   const hz = Number.isFinite(minZ) ? (maxZ - minZ) / 2 + 0.004 : 0.09;
   const cy = (top + yb) / 2;
   const hy = (top - yb) / 2 + 0.004;
-  let inFringe = false;
-  const collide = (q: number[]) => {
-    const ex = q[0]! / hx, ey = (q[1]! - cy) / hy, ez = (q[2]! - cz) / hz;
-    const e = ex * ex + ey * ey + ez * ez;
-    if (e < 1.04 && q[1]! > yb - 0.02) {
-      const f = Math.sqrt(1.04 / Math.max(e, 1e-6));
-      q = [q[0]! * f, cy + (q[1]! - cy) * f, cz + (q[2]! - cz) * f];
-    }
-    if (!inFringe && p.faceZ !== undefined && q[1]! < eyeLevel + 0.045 && q[2]! > p.faceZ - 0.008 && Math.abs(q[0]!) < hx * 0.9) {
-      q = [(q[0]! >= 0 ? 1 : -1) * hx * 0.9, q[1]!, q[2]!]; // o cabelo cai ao lado do rosto, não na frente dele
-    }
-    if (q[1]! < yb + 0.01) {
-      const rc = q[1]! > yb - 0.11 ? hx * 0.82 : hx * 0.5; // maxilar, depois pescoço
-      const dx = q[0]!, dz = q[2]! - cz - 0.005;
-      const r = Math.hypot(dx, dz);
-      if (r < rc) {
-        const f = rc / Math.max(r, 1e-6);
-        q = [dx * f, q[1]!, cz + 0.005 + dz * f];
+  // Grade espacial dos vértices da cabeça: os fios param na superfície REAL (não num elipsoide) e, se curtos, deitam nela.
+  const CELL = 0.012;
+  const gkey = (x: number, y: number, z: number) => ((x + 512) * 1024 + (y + 512)) * 1024 + (z + 512);
+  const grid = new Map<number, number[]>();
+  for (let i = 0; i < nv; i++) {
+    const k = gkey(Math.floor(pos[i * 3]! / CELL), Math.floor(pos[i * 3 + 1]! / CELL), Math.floor(pos[i * 3 + 2]! / CELL));
+    const cellList = grid.get(k);
+    if (cellList) cellList.push(i);
+    else grid.set(k, [i]);
+  }
+  const nearest = (q: number[]) => {
+    const cx0 = Math.floor(q[0]! / CELL), cy0 = Math.floor(q[1]! / CELL), cz0 = Math.floor(q[2]! / CELL);
+    let best = -1, bd = 0.045 * 0.045;
+    for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) for (let dz = -2; dz <= 2; dz++) {
+      const list = grid.get(gkey(cx0 + dx, cy0 + dy, cz0 + dz));
+      if (!list) continue;
+      for (const i of list) {
+        const d2 = (pos[i * 3]! - q[0]!) ** 2 + (pos[i * 3 + 1]! - q[1]!) ** 2 + (pos[i * 3 + 2]! - q[2]!) ** 2;
+        if (d2 < bd) { bd = d2; best = i; }
       }
     }
-    return q;
+    return best;
+  };
+  let inFringe = false;
+  const collide = (q: number[], off: number, stick: number) => {
+    // o cabelo não cai na frente do rosto: ao lado dele
+    if (!inFringe && p.faceZ !== undefined && q[1]! < eyeLevel + 0.045 && q[2]! > p.faceZ - 0.008 && Math.abs(q[0]!) < hx * 0.9) {
+      q = [(q[0]! >= 0 ? 1 : -1) * hx * 0.9, q[1]!, q[2]!];
+    }
+    const i = nearest(q);
+    if (i < 0) return q;
+    const n = [nor[i * 3]!, nor[i * 3 + 1]!, nor[i * 3 + 2]!];
+    const h = (q[0]! - pos[i * 3]!) * n[0]! + (q[1]! - pos[i * 3 + 1]!) * n[1]! + (q[2]! - pos[i * 3 + 2]!) * n[2]!;
+    let move = 0;
+    if (h < off) move = off - h; // nunca dentro da cabeça
+    else if (stick > 0 && h < off + 0.035) move = -(h - off) * stick; // curto: deita na superfície
+    return [q[0]! + n[0]! * move, q[1]! + n[1]! * move, q[2]! + n[2]! * move];
   };
 
   const field = p.photo && p.uv ? orientationField(p.photo) : null;
@@ -273,6 +319,11 @@ export function buildStrands(
       const d = [root[0]! - crown[0]!, root[1]! - crown[1]!, root[2]! - crown[2]!];
       const dn = d[0]! * normal[0]! + d[1]! * normal[1]! + d[2]! * normal[2]!;
       let flow = norm([d[0]! - normal[0]! * dn, d[1]! - normal[1]! * dn, d[2]! - normal[2]! * dn]);
+      if (st) {
+        // perto da coroa o fluxo radial não tem direção (vira tufo): ali o cabelo vai para trás, e a transição é suave
+        const rw = smooth(0, 0.045, Math.hypot(d[0]!, d[2]!));
+        flow = norm([flow[0]! * rw, flow[1]! * rw, flow[2]! * rw - (1 - rw)]);
+      }
       let ru = 0;
       let rv = 0;
       if (field && p.uv && p.photo) {
@@ -282,13 +333,13 @@ export function buildStrands(
           const cx = Math.min(field.w - 1, Math.max(0, Math.floor(ru * field.w)));
           const cy = Math.min(field.h - 1, Math.max(0, Math.floor(rv * field.h)));
           const ang = field.angle[cy * field.w + cx]!;
-          const coh = Math.min(1, field.coherence[cy * field.w + cx]! * 1.4);
+          const coh = smooth(0.3, 0.8, field.coherence[cy * field.w + cx]!); // só onde a foto mostra uma direção clara
           const t3 = norm([0, 1, 2].map((k) => Math.cos(ang) * pu![k]! + Math.sin(ang) * pv![k]!));
           const ref = [flow[0]!, flow[1]! - 0.6, flow[2]!];
           const sgn = t3[0]! * ref[0]! + t3[1]! * ref[1]! + t3[2]! * ref[2]! < 0 ? -1 : 1;
           const tn = (t3[0]! * normal[0]! + t3[1]! * normal[1]! + t3[2]! * normal[2]!) * sgn;
           const tt = [sgn * t3[0]! - normal[0]! * tn, sgn * t3[1]! - normal[1]! * tn, sgn * t3[2]! - normal[2]! * tn];
-          const mix = 0.75 * coh; // onde a foto não mostra direção clara, vale o fluxo a partir da coroa
+          const mix = 0.55 * coh; // onde a foto não mostra direção clara, vale o fluxo a partir da coroa
           flow = norm([0, 1, 2].map((k) => flow[k]! * (1 - mix) + tt[k]! * mix));
         }
       }
@@ -305,14 +356,14 @@ export function buildStrands(
         // direções diferentes por estilo: risca, jogado para o lado, penteado para trás
         if (st.sweep) mixTo(norm([Math.sign(st.sweep), -0.1, -0.1]), Math.min(0.9, Math.abs(st.sweep) * (0.3 + 0.7 * tHigh)));
         if (st.comb) mixTo(norm([0, 0.2, -1]), st.comb * (0.2 + 0.8 * tHigh) * 0.9);
-        if (st.part) mixTo(norm([root[0]! - (st.partX ?? 0) >= 0 ? 1 : -1, -0.1, -0.3]), st.part * (0.3 + 0.7 * tHigh));
+        if (st.part) mixTo(norm([Math.tanh((root[0]! - (st.partX ?? 0)) / 0.012), -0.1, -0.3]), st.part * (0.3 + 0.7 * tHigh));
         if (front) {
           fringeStrand = rnd() < st.fringe;
           // sem franja, a frente é penteada para trás e para os lados (separada na risca, se houver)
-          if (!fringeStrand) flow = norm([(root[0]! - (st.partX ?? 0) >= 0 ? 1 : -1) * 0.8, -0.15, -0.55]);
+          if (!fringeStrand) flow = norm([Math.tanh((root[0]! - (st.partX ?? 0)) / 0.012) * 0.8, -0.15, -0.55]);
         }
         const base = root[2]! < cz - 0.015 ? st.back : st.side;
-        len = (base + (st.top - base) * tHigh) * (0.85 + rnd() * 0.3);
+        len = (base + (st.top - base) * tHigh) * (0.92 + rnd() * 0.16);
       } else {
         // Cabelo mais comprido no topo; nas laterais e na nuca (mais de ~3 cm abaixo do topo) fica bem mais curto.
         len = p.length * (0.4 + 0.6 * tHigh) * (0.8 + rnd() * 0.4);
@@ -327,11 +378,13 @@ export function buildStrands(
       const nW = 0.32 + 0.5 * puff + 0.5 * lift;
       let dir = norm([normal[0]! * nW + flow[0]! * 0.5, normal[1]! * nW + flow[1]! * 0.5, normal[2]! * nW + flow[2]! * 0.5]);
       const phase0 = rnd() * Math.PI * 2;
+      const off = 0.003 + 0.006 * rnd() + 0.012 * puff; // espessura do cabelo sobre a pele
+      const shortness = Math.max(0, Math.min(1, 1 - len / 0.1)) * 0.85;
       const tone = 0.7 + rnd() * 0.4;
       // mechas: fios vizinhos (célula de ~4 mm) compartilham o desvio, com um pouco de ruído próprio
       const cell = hash3(Math.floor(root[0]! / 0.004), Math.floor(root[1]! / 0.004), Math.floor(root[2]! / 0.004));
-      const wigAmp = 0.2 + 0.5 * lift;
-      const wig = [0, 1, 2].map((k) => (cell[k]! - 0.5) * wigAmp + (rnd() - 0.5) * 0.05);
+      const wigAmp = (0.05 + 0.1 * Math.min(1, curl + lift)) * (len > 0.1 ? 1.5 : 1);
+      const wig = [(cell[0]! - 0.5) * wigAmp + (rnd() - 0.5) * 0.015, (cell[1]! - 0.5) * wigAmp * 0.25, (cell[2]! - 0.5) * wigAmp + (rnd() - 0.5) * 0.015];
       let strandRgb: [number, number, number] | null = null;
       if (p.photo && p.base) {
         const c = sampleRgb(p.photo, ru, rv);
@@ -339,6 +392,7 @@ export function buildStrands(
         strandRgb = [0, 1, 2].map((k) => Math.min(1, c[k]! * mixC + p.base![k]! * (1 - mixC))) as [number, number, number];
       }
       let cur = root;
+      const pts: number[][] = p.onStrand ? [root] : [];
       for (let k = 0; k < segs; k++) {
         // a gravidade pesa mais perto da ponta, e mais nos fios compridos; cabelo volumoso resiste a ela
         const fall = (0.24 + 0.4 * (k / segs)) * (1 + Math.min(len, 0.3) * (st ? 3 : 0)) * (1 - 0.55 * puff) * (1 - 0.8 * lift);
@@ -360,7 +414,8 @@ export function buildStrands(
         let next = [cur[0]! + sd[0]! * step, cur[1]! + sd[1]! * step, cur[2]! + sd[2]! * step];
         if (st) {
           inFringe = fringeStrand && front;
-          next = collide(next);
+          const stick = Math.max(shortness, 0.6 * Math.max(0, 1 - (2 * (k + 1)) / segs));
+          next = collide(next, off, stick);
         }
         out.push(cur[0]!, cur[1]!, cur[2]!, next[0]!, next[1]!, next[2]!);
         const t0 = tone * (0.85 + 0.25 * (k / segs));
@@ -376,7 +431,9 @@ export function buildStrands(
           }
         }
         cur = next;
+        if (p.onStrand) pts.push(next);
       }
+      p.onStrand?.({ pts, rgb: strandRgb, len, tHigh, front: front && fringeStrand });
       strands++;
     }
   }
@@ -386,5 +443,10 @@ export function buildStrands(
     strands,
     segments: segs,
     colors: colorsOut.length ? new Float32Array(colorsOut) : undefined,
+    head: { hx, hy, hz, cy, cz, yb, top },
+    attach: (q) => {
+      const i = nearest(q);
+      return i < 0 ? [-1, Infinity] : [i, Math.hypot(pos[i * 3]! - q[0]!, pos[i * 3 + 1]! - q[1]!, pos[i * 3 + 2]! - q[2]!)];
+    },
   };
 }
