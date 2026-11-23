@@ -1,8 +1,29 @@
 # Sculpta — Guia de reformulação do app
 
-> Versão 0.1 · 18/11/2026 · Autor: Lucas Farias (com Claude) · Status: **etapa 0 concluída; etapa 1 em andamento; etapa 1 e etapa 1B concluídas na versão atual (ver as seções de cada etapa); etapas 2 a 7 em andamento**
+> Versão 0.2 · 23/11/2026 · Autor: Lucas Farias (com Claude) · Status: **etapas 0 a 5 e 7 entregues na versão atual; etapa 6 funciona de ponta a ponta com uma pessoa (caminho FLAME em CPU), sem validação em outras pessoas; etapa 8 só em parte (cabelo simples); ver o quadro "Onde estamos" logo abaixo**
 > Este guia junta quatro frentes numa só ordem de trabalho: **(1)** a nova marca e o visual corporativo, **(2)** a captura guiada com foto automática e vídeo, **(3)** o realismo do rosto (pele, olhos, cabelo) e a modelagem com caneta, **(4)** contas, clínicas e permissões (multi-clínica, banco real no Supabase, detalhado em [`CONTAS-CLINICAS-PERMISSOES.md`](CONTAS-CLINICAS-PERMISSOES.md)), **(5)** o back-end de produto (relatórios, painel, auditoria). Complementa [`PLANEJAMENTO.md`](PLANEJAMENTO.md) e os [ADRs](adr/); onde houver conflito, **este guia vale** e o ADR correspondente deve ser atualizado.
 > Identidade visual e tokens: [`DESIGN.md`](../DESIGN.md). Conceitos de logo: [`brand/`](brand/).
+
+---
+
+## Onde estamos (23/11/2026)
+
+| Etapa | Estado | Observação |
+|---|---|---|
+| 0 Marca e fundação | ✅ entregue | |
+| 1 e 1B Design, navegação, contas, clínicas, permissões | ✅ entregue | Sem e-mail real: convite por link; sem verificação de e-mail nem recuperação de senha |
+| 2 Simulador, pincel, qualidade honesta | ✅ entregue | Caneta e toque reais não testados em hardware |
+| 3 Aparência | ✅ entregue | |
+| 4 Captura guiada, foto automática, vídeo | ✅ entregue | Sinais de giro e inclinação **validados com câmera real** (19/11) |
+| 5 Back-end de produto (painel, notas, linha do tempo, PDF) | ✅ entregue | PDF só com miniatura, sem fotos |
+| 6 Rosto real | 🟡 **funciona com uma pessoa** | Caminho B (FLAME 2023 Open) em CPU, ~40 s; ver a seção da Etapa 6 e [ETAPA-6-ROSTO-REAL.md](ETAPA-6-ROSTO-REAL.md) |
+| 7 Endurecimento e entrega | 🟡 parcial | README, LGPD, operação e CI prontos; Docker, CI com as dependências novas e staging **nunca rodaram** |
+| 8 Futuro | 🟡 só em parte | Cabelo simples (casca) e fios experimentais feitos; **app iOS não feito** (sem Mac) |
+
+**Falta, por quem resolve**
+- **Precisa de você:** pessoas com termo assinado para testar o rosto; e-mail (provedor) para verificação e recuperação de senha; banco e armazenamento em São Paulo e troca da senha do banco; validação jurídica do termo; um Mac (ou serviço de build) para o app iOS; olhar o rosto no simulador e dizer o que está errado.
+- **Posso fazer sem você:** conferir o CI, acabamento do rosto (formato, pescoço, fundo da cabeça, cabelo), PDF com fotos e antes/depois, upload de documentos, `/api/v1` com OpenAPI, tela "Sobre" com o crédito do FLAME (a licença exige), RLS efetiva, exportação dos dados do paciente, métricas de fila.
+- **Depende de licença/GPU (futuro):** reconstrução por VGGTFace/Pixel3DMM (CC BY-NC; uso comercial exige autorização dos autores).
 
 ---
 
@@ -389,7 +410,12 @@ E0 Fundação ─► E1 Design + telas de gestão ─► E1B Contas, clínicas e
 **Critérios de aceite:** você se reconhece no modelo; reconstrução em < 1 min (meta do documento técnico); `LOW_QUALITY` e `FACE_NOT_FOUND` voltam ao usuário com instrução clara; nenhuma foto persiste no worker.
 **Risco:** é a etapa que decide o produto. Qualidade com poucas fotos é **desconhecida** até a Fase 0.
 
-**Estado (18/11/2026): preparada, não executada.** Nenhum item de 1 a 6 foi feito: dependem de GPU e de licença (decisão sua). O que ficou pronto é o contrato com o worker (5 a 10 vistas), a fila, as 9 vistas, a confiança e o roteiro da Fase 0. Detalhes, riscos e o que preciso de você em [ETAPA-6-ROSTO-REAL.md](ETAPA-6-ROSTO-REAL.md).
+**Estado (23/11/2026): funciona de ponta a ponta com uma pessoa, por outro caminho que o previsto.** Em vez do VGGTFace (GPU e licença não comercial), o worker ajusta o **FLAME 2023 Open** (CC BY 4.0) aos pontos do MediaPipe de todas as vistas, **em CPU** (~40 s, sem GPU). Entregue:
+- **Ajuste e textura:** forma por mínimos quadrados sobre 105 pontos por foto; UV próprio (a textura oficial do FLAME é não comercial e não é usada); textura por projeção das fotos com teste de oclusão e mistura em duas bandas; olhos desenhados dentro da abertura real, com a íris da foto; orelhas segmentadas na foto de perfil e deformadas até a real; pescoço, topo e fundo da cabeça preenchidos.
+- **Integração:** `app/face` no worker (`RECONSTRUCTOR=flame`), fonte `FALLBACK_FIT`, `.glb` com 15 sliders, regiões, textura, cobertura de cabelo; a API e a fila já usavam o contrato; o simulador usa a textura das fotos, o selo mostra "Reconstrução aproximada" e a confiança nunca passa de média (`qualityScore` com teto 0,79: mede só a coerência entre fotos, não a semelhança).
+- **Critérios de aceite:** reconstrução em < 1 min ✅ (~40 s); erros `LOW_QUALITY` e `FACE_NOT_FOUND` com instrução ✅; nenhuma foto persiste no worker ✅ por desenho (não verificado em produção); **"você se reconhece no modelo" ⚠️ parcial** (parece com você de frente e de 45°; formato do rosto e manchas de cor ainda diferem da foto).
+- **Não feito / limites:** testado só em **uma pessoa**; o ajuste do contorno da mandíbula foi **tentado e revertido** (rosto magro e deformado); o formato ainda é o do ajuste por pontos; FLAME não dá a precisão de um escaneamento (erro de ~5 mm mesmo com pontos exatos); Docker e CI do worker nunca rodaram; tela "Sobre" com o crédito do FLAME ainda não existe.
+- Detalhes, medidas e o que foi descartado: [ETAPA-6-ROSTO-REAL.md](ETAPA-6-ROSTO-REAL.md).
 
 ---
 
@@ -406,7 +432,7 @@ E0 Fundação ─► E1 Design + telas de gestão ─► E1B Contas, clínicas e
 
 **Entregue / Fora desta entrega (honesto, 18/11/2026)**
 - Entregue: README novo (estado real, variáveis, roteiro de demonstração de 10 minutos); [LGPD-CHECKLIST.md](LGPD-CHECKLIST.md) (feito, parcial e falta, sem pretensão de parecer jurídico); [OPERACAO.md](OPERACAO.md) (backup e restauração, retenção, observabilidade, staging); job de testes de tela no CI; `pnpm audit --prod` sem vulnerabilidades conhecidas em 18/11/2026; `pnpm check` (lint, tipos, testes e build) verde.
-- **Não executado**: Docker/compose, o CI no GitHub, o worker Python (`pytest`, `ruff`, `mypy`, `pip-audit`: sem Python nesta máquina), staging, teste de backup e restauração.
+- **Não executado** (atualizado em 23/11): Docker/compose, o CI no GitHub, staging, teste de backup e restauração, `pip-audit`. O worker Python **já roda localmente** (Python 3.12 instalado em 19/11): `pytest` (12), `ruff` e `mypy` passam.
 - **Falta**: validação jurídica do termo, métricas de fila e reconstrução, logs estruturados com coleta central, 2FA, verificação de e-mail e recuperação de senha, RLS efetiva na API, banco em São Paulo, exportação dos dados do paciente.
 - O critério ("uma pessoa de fora sobe o ambiente só pelo README") **não foi testado com outra pessoa**.
 
@@ -414,8 +440,8 @@ E0 Fundação ─► E1 Design + telas de gestão ─► E1B Contas, clínicas e
 
 ### Etapa 8 — Futuro (não comprometido)
 
-- **Cabelo por fios** (Im2Haircut, HairStep; licenças a verificar).
-- **App iOS com TrueDepth/ARKit** que envia a malha medida ao mesmo sistema.
+- **Cabelo por fios** (Im2Haircut, HairStep; licenças a verificar). **Feito em versão simples (23/11):** uma casca de cabelo na linha do cabelo e na cor medidas nas fotos, mais fios finos experimentais (linhas de 1 px, sem física). Fios de verdade ficam para depois.
+- **App iOS com TrueDepth/ARKit** que envia a malha medida ao mesmo sistema. **Não feito**: não há Mac para compilar e testar; é o caminho de maior fidelidade (geometria medida, não estimada).
 - Rugas dinâmicas e outros procedimentos fora do escopo atual.
 - Integrações (prontuário, agenda).
 
