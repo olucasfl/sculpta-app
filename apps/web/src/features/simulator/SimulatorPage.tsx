@@ -69,7 +69,7 @@ const REGION_PRESET: Record<FaceRegion, string> = {
   jaw: 'jaw',
   malar: 'malar',
   infraorbital: 'infraorbital',
-  nasolabial: 'infraorbital',
+  nasolabial: 'nasolabial',
 };
 const VIEWS: { id: ViewName; label: string }[] = [
   { id: 'RIGHT_90', label: 'Perfil dir.' },
@@ -97,6 +97,8 @@ export function SimulatorPage() {
   const [savedParams, setSavedParams] = useState<string>('{}');
   const [presetId, setPresetId] = useState(PROCEDURE_PRESETS[0]!.id);
   const [highlight, setHighlight] = useState<FaceRegion | null>(null);
+  /** Zona em que a câmera deve se enquadrar (muda a cada escolha de procedimento). */
+  const [focus, setFocus] = useState<{ regions: FaceRegion[]; nonce: number } | null>(null);
   const [showRegions, setShowRegions] = useState(false);
   const [wireframe, setWireframe] = useState(false);
   const [compare, setCompare] = useState<CompareMode>('off');
@@ -277,6 +279,7 @@ export function SimulatorPage() {
           showOriginal={showOriginal}
           view={view}
           viewNonce={viewNonce}
+          focus={focus}
           onRegionPick={onRegionPick}
           onLoaded={onLoaded}
           sculpt={mode === 'regions' && canWrite ? sculptHandlers : undefined}
@@ -351,7 +354,9 @@ export function SimulatorPage() {
                 aria-pressed={p.id === presetId}
                 onClick={() => {
                   setPresetId(p.id);
-                  setHighlight(SLIDERS.find((x) => x.id === p.sliders[0])?.region ?? null);
+                  const regions = [...new Set(SLIDERS.filter((x) => (p.sliders as readonly string[]).includes(x.id)).map((x) => x.region))];
+                  setHighlight(regions[0] ?? null);
+                  setFocus((f) => ({ regions, nonce: (f?.nonce ?? 0) + 1 })); // destaca a zona e enquadra a câmera nela
                 }}
                 className={cn(
                   'flex w-full items-center justify-between gap-3 whitespace-nowrap rounded-lg px-3 py-1.5 text-left text-sm font-medium',

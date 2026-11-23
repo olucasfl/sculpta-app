@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { DEFAULT_APPEARANCE, irisColor, skinColor, type Appearance } from './appearance';
 import { BrowsAndLashes, Eyes, Hair } from './FaceExtras';
 import { HairStrands } from './HairStrandsView';
+import { distanceForZone, zoneBounds } from './zone';
 import { resolveStyle, type DetectedHair, type HairModelId } from './hairStyles';
 import type { BrushParams } from './sculpt';
 import { createSculptRuntime, type SculptRuntime, type SculptState } from './sculptRuntime';
@@ -28,6 +29,8 @@ const DISTANCE = 0.62;
 const POLAR = Math.PI / 2 - 0.05;
 const SKIN = new THREE.Color('#d6c0b0');
 const ACCENT = new THREE.Color('#0f8f89');
+// zona do procedimento escolhido: o tom multiplica a textura, então precisa ser claro e saturado para aparecer sobre a pele
+const ZONE = new THREE.Color('#5ff0e0');
 const REGION_TINT: Record<FaceRegion, string> = {
   nose: '#5b8def',
   lips: '#d9577a',
@@ -73,6 +76,8 @@ interface Props {
   showOriginal: boolean;
   view: ViewName;
   viewNonce: number;
+  /** Zona do procedimento escolhido: a câmera se aproxima dela (muda a cada escolha, mesmo repetida). */
+  focus?: { regions: FaceRegion[]; nonce: number } | null;
   onRegionPick: (region: FaceRegion) => void;
   onLoaded?: (info: ModelInfo) => void;
   /** Modo modelar: arrastar sobre o rosto (mouse, caneta, dedo) chama estes callbacks em vez de girar a câmera. */
@@ -330,7 +335,7 @@ function FaceModel({
       if (active) {
         const a = regionAttrs.get(active);
         const w = a ? a.getX(v) : 0;
-        if (w > 0) c.lerp(ACCENT, Math.min(hover && hover !== highlight ? 0.35 : 0.6, w * 0.6));
+        if (w > 0) c.lerp(hover && hover !== highlight ? ACCENT : ZONE, Math.min(hover && hover !== highlight ? 0.4 : 0.85, w * 1.2));
       }
       color.setXYZ(v, c.r, c.g, c.b);
     }
@@ -599,17 +604,42 @@ function Rig({
   showOriginal,
   view,
   viewNonce,
+  focus,
   shared,
   api,
 }: Props & { shared: React.RefObject<Shared>; api: React.RefObject<Pick<ViewerHandle, 'snapshot'> | null> }) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
   const { gl, scene, camera, invalidate } = useThree();
-  const goal = useRef<{ az: number; dist: number } | null>(null);
+  const goal = useRef<{ az: number; dist: number; target?: THREE.Vector3 } | null>(null);
 
   useEffect(() => {
     goal.current = { az: VIEW_AZIMUTH[view], dist: DISTANCE };
     invalidate();
   }, [view, viewNonce, invalidate]);
+
+  // Escolher um procedimento aproxima a câmera da zona dele, mantendo o ângulo atual
+  useEffect(() => {
+    const mesh = shared.current?.mesh;
+    const c = controls.current;
+    if (!focus || !mesh || !c) return;
+    const g = mesh.geometry;
+    const weights = focus.regions
+      .map((r) => g.getAttribute(`_region_${r}`) as THREE.BufferAttribute | undefined)
+      .filter((a): a is THREE.BufferAttribute => !!a)
+      .map((a) => Float32Array.from({ length: a.count }, (_, i) => a.getX(i)));
+    const zone = zoneBounds(g.getAttribute('position').array as ArrayLike<number>, weights);
+    if (!zone) return;
+    const center = mesh.localToWorld(new THREE.Vector3(...zone.center));
+    const offset = camera.position.clone().sub(c.target);
+    goal.current = {
+      az: new THREE.Spherical().setFromVector3(offset).theta,
+      dist: distanceForZone(zone.radius),
+      target: center,
+    };
+    invalidate();
+    // só reage a uma nova escolha de procedimento
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.nonce]);
 
   useEffect(() => invalidate(), [compare, curtain, showOriginal, invalidate]);
 
@@ -677,7 +707,7 @@ function Rig({
       dAz = Math.atan2(Math.sin(dAz), Math.cos(dAz));
       const dPol = POLAR - sph.phi;
       const dR = goal.current.dist - sph.radius;
-      const dT = TARGET.clone().sub(c.target);
+      const dT = (goal.current.target ?? TARGET).clone().sub(c.target);
       sph.theta += dAz * 0.18;
       sph.phi += dPol * 0.18;
       sph.radius += dR * 0.18;
@@ -737,7 +767,7 @@ function Rig({
       target={TARGET}
       enablePan={false}
       enableDamping={false}
-      minDistance={0.35}
+      minDistance={0.22}
       maxDistance={1.1}
       minPolarAngle={0.15}
       maxPolarAngle={Math.PI - 0.15}

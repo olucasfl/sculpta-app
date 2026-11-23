@@ -145,3 +145,12 @@ Um painel "Comparar" com: **Cortina**, **Alternar** (segurar para ver o antes), 
 - Quatro testes novos (direção, teto por traço, soma entre traços, força mínima); e2e do pincel passou.
 
 **Limites:** o pincel ainda age em qualquer ponto do rosto; a trava por zona e os procedimentos entram nas etapas 2 a 5. Os 8 mm e os 3 mm por traço são valores de interface, não regra clínica; precisam de validação por profissional.
+
+## 13. Etapa 2 entregue (23/11/2026): procedimento escolhido, zona destacada e câmera na zona
+
+- **Catálogo:** a lista da esquerda agora separa **Olheiras** e **Sulco nasolabial** (antes juntos em "Infraorbital e sulco"), além de Lábios, Malar, Mento, Mandíbula e Nariz. Os procedimentos que ainda não têm região no modelo (têmporas, masseter, testa e glabela) ficam para a Etapa 3, quando ganham região e alvo de deformação.
+- **Zona destacada:** ao escolher um procedimento, a região dele fica com um tom verde-água claro sobre a pele (antes o tom era escuro e quase não aparecia na textura das fotos). Os pesos vêm da própria malha (`_REGION_*`), então vale para qualquer rosto reconstruído.
+- **Câmera na zona:** a câmera se aproxima da zona mantendo o ângulo atual (`zone.ts`: centro e tamanho da região, distância para enquadrar com folga a 30 graus de campo). Os botões de vista e "Recentralizar" voltam ao rosto todo. A distância mínima da câmera caiu de 35 para 22 cm.
+- Três testes novos (`zone.test.ts`); e2e do simulador passou. Conferido na tela com o modelo real: lábios, queixo e malar (as duas áreas simétricas) ficaram destacados e enquadrados.
+
+**Limites:** o pincel ainda não fica preso à zona (Etapa 5); o destaque é um tom sobre a textura, não um mapa do que já foi alterado (Etapa 4); a região malar do modelo atual cobre sobretudo a área logo abaixo dos olhos, o que deve ser revisto junto com os alvos de deformação.

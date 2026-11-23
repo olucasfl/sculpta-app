@@ -134,10 +134,17 @@ export const PROCEDURE_PRESETS: ProcedurePreset[] = [
   },
   {
     id: 'infraorbital',
-    label: 'Infraorbital e sulco',
-    description: 'Suavização da região abaixo dos olhos e do sulco nasolabial.',
-    sliders: ['infraorbital.volume', 'nasolabial.volume'],
+    label: 'Olheiras',
+    description: 'Suavização do sulco abaixo dos olhos (região infraorbital).',
+    sliders: ['infraorbital.volume'],
     limitation: 'O resultado depende muito da qualidade da malha nessa região; olheiras de pigmento não são simuladas.',
+  },
+  {
+    id: 'nasolabial',
+    label: 'Sulco nasolabial',
+    description: 'Suavização da dobra entre o nariz e a boca.',
+    sliders: ['nasolabial.volume'],
+    limitation: 'O resultado depende muito da qualidade da malha nessa região; a dobra dinâmica ao sorrir não é simulada.',
   },
 ];
 
