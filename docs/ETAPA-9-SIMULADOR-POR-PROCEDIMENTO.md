@@ -265,3 +265,5 @@ Spec opcional `apps/web/e2e/real-model.spec.ts` (roda só com `REAL_GLB` apontan
 - Verificado na tela (modelo real da pessoa 1, "Longo ondulado com franja"): mais cheio, pontas e franja irregulares, sem o zigue-zague.
 
 **Limites:** ainda são linhas de 1 px, então de perto lembra uma peruca de fios; sobraram poucos fios finos no contorno esquerdo da cabeça; a parte de trás e os ombros não foram conferidos nesta rodada (só frente); cacheado comprido não foi reexaminado.
+
+**Conferência de lado (45° e perfil esquerdo, modelo real):** o cabelo cai atrás da orelha e rente ao pescoço. Os fios com dobra brusca (mais de ~70° de uma vez, por bater na orelha ou no rosto) agora são descartados; sobraram poucos fios finos levemente angulares perto da orelha e do pescoço. As capturas `57b` e `57c` entram no spec `real-model`. A vista de trás não existe no app, então as costas continuam sem conferência.

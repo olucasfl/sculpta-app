@@ -438,7 +438,8 @@ export function buildStrands(
         strandRgb = [0, 1, 2].map((k) => Math.min(1, c[k]! * mixC + p.base![k]! * (1 - mixC))) as [number, number, number];
       }
       let cur = root;
-      const pts: number[][] = p.onStrand ? [root] : [];
+      const pts: number[][] = [root];
+      const mark = [out.length, shade.length, colorsOut.length];
       for (let k = 0; k < segs; k++) {
         // a gravidade pesa mais perto da ponta, e mais nos fios compridos; cabelo volumoso resiste a ela
         const fall = (0.24 + 0.4 * (k / segs)) * (1 + Math.min(len, 0.3) * (st ? 3 : 0)) * (1 - 0.55 * puff) * (1 - 0.8 * lift);
@@ -492,7 +493,23 @@ export function buildStrands(
           }
         }
         cur = next;
-        if (p.onStrand) pts.push(next);
+        pts.push(next);
+      }
+      if (st && len > 0.1) {
+        // fio com dobra brusca (bateu na orelha ou no rosto): é descartado em vez de virar um arame solto
+        let kink = false;
+        for (let k = 2; k < pts.length && !kink; k++) {
+          const a = pts[k - 1]!, b = pts[k - 2]!, c = pts[k]!;
+          const u = [a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!], w = [c[0]! - a[0]!, c[1]! - a[1]!, c[2]! - a[2]!];
+          const cosA = (u[0]! * w[0]! + u[1]! * w[1]! + u[2]! * w[2]!) / (Math.hypot(u[0]!, u[1]!, u[2]!) * Math.hypot(w[0]!, w[1]!, w[2]!) + 1e-9);
+          if (cosA < 0.35) kink = true; // mais de ~70 graus de uma vez
+        }
+        if (kink) {
+          out.length = mark[0]!;
+          shade.length = mark[1]!;
+          colorsOut.length = mark[2]!;
+          continue;
+        }
       }
       p.onStrand?.({ pts, rgb: strandRgb, len, tHigh, front: front && fringeStrand });
       strands++;

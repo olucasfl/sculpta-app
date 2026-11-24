@@ -81,6 +81,12 @@ test('modelo real: cabelo automático, perfil, lábios, diferença, cabelo longo
   await page.getByRole('group', { name: 'Vistas' }).getByRole('button', { name: 'Frente' }).click();
   await page.getByRole('button', { name: 'Fechar comparação' }).click();
   await shot('57-real-cabelo-longo.png', 25_000);
+  for (const [view, file] of [['45° esq.', '57b-real-cabelo-longo-45.png'], ['Perfil esq.', '57c-real-cabelo-longo-perfil.png']] as const) {
+    await page.getByRole('button', { name: /Comparar/ }).click();
+    await page.getByRole('group', { name: 'Vistas' }).getByRole('button', { name: view }).click();
+    await page.getByRole('button', { name: 'Fechar comparação' }).click();
+    await shot(file, 8_000);
+  }
   await page.getByRole('button', { name: 'Automático (da foto)' }).click();
   await shot('58-real-cabelo-auto-de-novo.png', 12_000);
 });
