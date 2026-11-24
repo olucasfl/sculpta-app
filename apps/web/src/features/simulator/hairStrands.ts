@@ -203,7 +203,7 @@ export function buildStrands(
   const segs = p.segments ?? (st ? (st.curl > 0.4 ? 12 : Math.max(6, Math.min(14, Math.round(maxLen * 70)))) : 6);
   const rnd = mulberry32(p.seed ?? 1);
   // cabelo comprido tem muito mais segmentos por fio: menos fios dão o mesmo efeito e pesam menos
-  const density = p.density * (st ? Math.max(0.4, 1 - maxLen * 1.1) : 1);
+  const density = p.density * (st ? Math.max(0.7, 1 - maxLen * 0.55) : 1);
   const nv = pos.length / 3;
 
   // Coroa: o ponto mais alto entre os vértices com cabelo, um pouco para trás. O fluxo irradia dela.
@@ -405,8 +405,13 @@ export function buildStrands(
         len = p.length * (0.4 + 0.6 * tHigh) * (0.8 + rnd() * 0.4);
       }
       if (st?.fringeLen && front && fringeStrand) len = st.fringeLen * (0.92 + rnd() * 0.16);
+      if (st && len > 0.1) {
+        // comprido: as pontas não terminam numa linha reta; mechas vizinhas têm tamanhos um pouco diferentes
+        const lc = hash3(Math.floor(root[0]! / 0.007) + 91, Math.floor(root[1]! / 0.007), Math.floor(root[2]! / 0.007));
+        len *= 0.84 + 0.16 * lc[2]! + 0.08 * rnd();
+      }
       if (p.eyeY !== undefined && p.faceZ !== undefined && front && fringeStrand) {
-        len = Math.min(len, Math.max(0.01, (root[1]! - (p.eyeY + 0.03)) / 0.6)); // franja: termina acima da sobrancelha
+        len = Math.min(len, Math.max(0.01, (root[1]! - (p.eyeY + 0.03)) / 0.6) * (0.9 + 0.2 * rnd())); // franja: termina acima da sobrancelha
       }
       len = Math.max(len, 0.006);
       const step = len / segs;
@@ -418,7 +423,8 @@ export function buildStrands(
       // curva natural: fios vizinhos oscilam juntos (fase comum pela posição da raiz) com pequena diferença própria
       const wavePhase = root[0]! * 38 + root[2]! * 24 + root[1]! * 12 + (rnd() - 0.5) * 1.4;
       const waveAmp = st ? Math.max(st.wave ?? 0, 0.12) : 0;
-      const off = 0.003 + 0.006 * rnd() + 0.012 * puff; // espessura do cabelo sobre a pele
+      // espessura do cabelo sobre a pele; o comprido tem camadas (fios mais fundos e mais afastados da cabeça = volume)
+      const off = 0.003 + 0.006 * rnd() + 0.012 * puff + 0.014 * smooth(0.1, 0.3, len) * rnd() * rnd();
       const shortness = Math.max(0, Math.min(1, 1 - len / 0.1)) * 0.85;
       const tone = 0.7 + rnd() * 0.4;
       // mechas: fios vizinhos (célula de ~4 mm) compartilham o desvio, com um pouco de ruído próprio
@@ -458,10 +464,19 @@ export function buildStrands(
           sd = norm([0, 1, 2].map((q) => sd[q]! + lat[q]! * waveAmp * 0.9 * ramp * Math.cos(ph)));
         }
         let next = [cur[0]! + sd[0]! * step, cur[1]! + sd[1]! * step, cur[2]! + sd[2]! * step];
+        // comprido: o cabelo cai junto da cabeça e se abre só ao passar pelos ombros (nada de fios soltos para os lados)
+        const hug = (q: number[]) => {
+          const below = Math.max(0, yb - q[1]!);
+          const lim = hx * 1.1 + 0.014 + Math.min(hx * 0.7, below * 0.8);
+          const ax = Math.abs(q[0]!);
+          return ax > lim ? [Math.sign(q[0]!) * (lim + (ax - lim) * 0.12), q[1]!, q[2]!] : q;
+        };
+        if (st && len > 0.1) next = hug(next);
         if (st) {
           inFringe = fringeStrand && front;
           const stick = Math.max(shortness, 0.6 * Math.max(0, 1 - (2 * (k + 1)) / segs));
           next = collide(next, off, stick);
+          if (len > 0.1) next = hug(next);
         }
         out.push(cur[0]!, cur[1]!, cur[2]!, next[0]!, next[1]!, next[2]!);
         const t0 = tone * (0.85 + 0.25 * (k / segs));

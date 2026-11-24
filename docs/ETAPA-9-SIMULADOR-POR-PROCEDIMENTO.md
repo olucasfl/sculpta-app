@@ -251,3 +251,17 @@ Spec opcional `apps/web/e2e/real-model.spec.ts` (roda só com `REAL_GLB` apontan
 - Verificado na tela com o rosto real da pessoa 1: o lado esquerdo da testa fica com o cabelo caindo até perto da sobrancelha e o direito fica livre, como na foto. As duas capturas foram reconstruídas de novo no Supabase com o worker novo.
 
 **Limites:** o lado depende de a foto frontal não estar espelhada em relação ao modelo (confere com a pessoa 1; não há como saber de outra forma); franjas muito finas ou da cor da pele do fundo podem não ser lidas; só duas pessoas foram usadas (uma com franja de lado, uma sem franja).
+
+## 22. Cabelo comprido mais real (24/11/2026)
+
+**Problema (visto na tela com o rosto real):** o comprido (ex.: "Longo ondulado com franja") parecia uma cortina de fios finos: pouca massa, pontas todas na mesma altura (franja numa linha reta) e fios soltos longe da cabeça nas têmporas, incluindo um zigue-zague perto da orelha.
+
+**Correção (`hairStrands.ts`), só para fios com mais de 10 cm:**
+- **Mais fios:** a densidade deixou de cair tanto com o comprimento (piso de 70%, antes 40%).
+- **Volume em camadas:** parte dos fios fica mais afastada da cabeça (até ~1,4 cm), em vez de todos colados na pele.
+- **Pontas irregulares:** o comprimento varia por mecha (células de ~7 mm vizinhas compartilham o tamanho) e por fio; a franja também deixa de terminar numa linha reta.
+- **Cai junto da cabeça:** limite lateral que só se abre ao passar pelos ombros, aplicado antes e depois da colisão com a cabeça. Elimina os fios soltos para os lados e o zigue-zague da orelha.
+- Teste novo (limite lateral e pontas em alturas diferentes). 85 testes do web passam; tipos e lint limpos.
+- Verificado na tela (modelo real da pessoa 1, "Longo ondulado com franja"): mais cheio, pontas e franja irregulares, sem o zigue-zague.
+
+**Limites:** ainda são linhas de 1 px, então de perto lembra uma peruca de fios; sobraram poucos fios finos no contorno esquerdo da cabeça; a parte de trás e os ombros não foram conferidos nesta rodada (só frente); cacheado comprido não foi reexaminado.

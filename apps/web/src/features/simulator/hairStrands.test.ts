@@ -61,6 +61,19 @@ describe('cabelo em fios', () => {
     expect(descended).toBe(s.strands); // nenhum fio sobe reto até o comprimento total
   });
 
+  it('cabelo comprido cai junto da cabeça (sem fios soltos para os lados) e as pontas variam de tamanho', () => {
+    const q = quad(1, 1);
+    const style = { top: 0.3, side: 0.38, back: 0.4, fringe: 0, curl: 0, puff: 0.6, wave: 0.3 };
+    const s = buildStrands(q.pos, q.nor, q.idx, q.hair, { density: 30, length: 0.3, seed: 5, segments: 14, style });
+    const hx = 0.054; // meia-largura da calota de teste (+ 4 mm)
+    let maxX = 0;
+    const ends = new Set<number>();
+    for (let i = 0; i < s.positions.length; i += 3) maxX = Math.max(maxX, Math.abs(s.positions[i]!));
+    for (let i = 0; i < s.strands; i++) ends.add(Math.round(s.positions[(i * 14 + 13) * 6 + 4]! * 200));
+    expect(maxX).toBeLessThan(hx * 1.8 + 0.03);
+    expect(ends.size).toBeGreaterThan(4); // não terminam todos na mesma altura
+  });
+
   it('lê da foto a direção dos fios e a cor de cada um', () => {
     const w = 64;
     const h = 64;
