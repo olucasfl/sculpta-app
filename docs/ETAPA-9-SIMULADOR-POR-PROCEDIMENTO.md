@@ -223,3 +223,17 @@ Um painel "Comparar" com: **Cortina**, **Alternar** (segurar para ver o antes), 
 **Não verificado (a registrar):** nenhum teste num tablet ou celular de verdade (só emulação do navegador, com 3D por software); modelo reconstruído real na tela completa do simulador (as capturas completas são do modelo demonstrativo, que o seed do e2e usa; o modelo real foi visto em páginas de teste); o pincel com o mouse sobre o rosto real; o PDF renderizado (só gerado e testado); a pessoa 1 continua com o modelo demonstrativo até a captura ser refeita.
 **Dependem de profissional habilitado:** tetos em mm, formatos prontos, procedimentos de toxina e a faixa de resultado do relatório.
 **Achado fora do escopo:** no modelo demonstrativo a cor de olhos escolhida (azul) não aparece no olho (esfera branca com anel cinza); não investigado.
+
+## 20. Conferência com o modelo real na tela completa (24/11/2026)
+
+Spec opcional `apps/web/e2e/real-model.spec.ts` (roda só com `REAL_GLB` apontando para um `.glb` reconstruído): sobe a pilha de teste isolada, entra com a conta de teste e **substitui o modelo demonstrativo pelo modelo real da pessoa 1**, no simulador completo. Capturas em `e2e/screenshots/desktop-1440x900/50` a `58`.
+
+**Visto funcionando com o rosto real:** cabelo automático (curto, castanho, acompanhando a cabeça; no perfil, atrás da orelha), painel dos Lábios com limites reais em mm (3,0 / 3,2 / 0,5), formato "Volumoso" (2,1 e 2,6 mm; o ponto de alterado aparece na lista), modo **Diferença** com a legenda e os lábios em verde e azul, **Nariz** com "Ponta mais projetada" (+2,0 mm; o nariz avança no perfil), troca para "Longo ondulado com franja" e volta ao automático, painel Comparar com as 5 miniaturas do rosto real.
+
+**Ajustes feitos por causa do que apareceu:** alguns fios ainda cruzavam o alto da orelha no perfil (a zona da orelha foi ampliada; conferido na tela: o perfil ficou limpo); o destaque verde da zona do procedimento ficava na tela quando se abria a aba Aparência (agora some).
+
+**O que se vê e não está bom (para decidir):**
+- O cabelo automático segue o comprimento lido (curto) mas **não reproduz a franja de lado** que a pessoa tem na foto: a leitura deu "sem franja" porque a franja é fina e o limite de cor não a pega. O cabelo fica mais alto na testa do que na foto.
+- O cabelo "Longo ondulado com franja" aparece como fios finos de 1 px: parece uma peruca, com alguns fios soltos longe da cabeça.
+- Nuca e pescoço têm uma mancha escura e uma ponta preta no ombro (textura do pescoço), problema antigo, sem relação com o cabelo.
+- Dá para ver fios finos pretos soltos nas têmporas quando a câmera chega perto (zoom nos lábios).

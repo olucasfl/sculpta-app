@@ -270,7 +270,7 @@ export function buildStrands(
       z0 = Math.min(z0, pos[i * 3 + 2]!); z1 = Math.max(z1, pos[i * 3 + 2]!);
     }
     if (n < 6) continue;
-    ears.push({ sx, cx: mx / n, cy: my / n, cz: mz / n, ry: Math.max(0.045, (y1 - y0) / 2 + 0.026), rz: Math.max(0.035, (z1 - z0) / 2 + 0.02) });
+    ears.push({ sx, cx: mx / n, cy: my / n, cz: mz / n, ry: Math.max(0.05, (y1 - y0) / 2 + 0.038), rz: Math.max(0.038, (z1 - z0) / 2 + 0.026) });
   }
   let inFringe = false;
   const collide = (q: number[], off: number, stick: number) => {

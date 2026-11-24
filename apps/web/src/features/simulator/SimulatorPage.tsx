@@ -332,7 +332,7 @@ export function SimulatorPage() {
           ref={viewer}
           url={modelUrl}
           params={history.live}
-          highlight={highlight ?? (mode === 'brush' ? (presetRegions[0] ?? null) : null)}
+          highlight={panelTab === 'look' ? null : (highlight ?? (mode === 'brush' ? (presetRegions[0] ?? null) : null))}
           showRegions={showRegions}
           wireframe={wireframe}
           compare={compare}
