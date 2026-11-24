@@ -59,6 +59,8 @@ export interface StrandStyle {
   top: number;
   side: number;
   back: number;
+  /** Comprimento (m) dos fios da franja; sem ele valem os comprimentos do alto da cabeça. */
+  fringeLen?: number;
   /** 0 a 1: parte dos fios da frente que cai sobre a testa (o resto é penteado para trás e para os lados). */
   fringe: number;
   /** 0 (liso) a 1 (cacheado). */
@@ -384,9 +386,17 @@ export function buildStrands(
         if (st.comb) mixTo(norm([0, 0.2, -1]), st.comb * (0.2 + 0.8 * tHigh) * 0.9);
         if (st.part) mixTo(norm([Math.tanh((root[0]! - (st.partX ?? 0)) / 0.012), -0.1, -0.3]), st.part * (0.3 + 0.7 * tHigh));
         if (front) {
-          fringeStrand = rnd() < st.fringe;
+          // franja de lado: cai sobre a testa só no lado em que ela pesa; do outro lado o cabelo fica penteado para cima
+          let pf = st.fringe;
+          if (st.sweep) {
+            const heavy = smooth(-0.02, 0.03, Math.sign(st.sweep) * root[0]!);
+            pf = Math.min(1, st.fringe * 1.8) * heavy + 0.08 * (1 - heavy);
+          }
+          fringeStrand = rnd() < pf;
           // sem franja, a frente é penteada para trás e para os lados (separada na risca, se houver)
           if (!fringeStrand) flow = norm([Math.tanh((root[0]! - (st.partX ?? 0)) / 0.012) * 0.8, -0.15, -0.55]);
+          // franja de lado: os fios da franja atravessam a testa em diagonal, para o lado do `sweep`
+          else if (st.sweep) mixTo(norm([Math.sign(st.sweep), -0.4, 0.12]), Math.min(0.85, Math.abs(st.sweep)));
         }
         const base = root[2]! < cz - 0.015 ? st.back : st.side;
         len = (base + (st.top - base) * tHigh) * (0.92 + rnd() * 0.16);
@@ -394,6 +404,7 @@ export function buildStrands(
         // Cabelo mais comprido no topo; nas laterais e na nuca (mais de ~3 cm abaixo do topo) fica bem mais curto.
         len = p.length * (0.4 + 0.6 * tHigh) * (0.8 + rnd() * 0.4);
       }
+      if (st?.fringeLen && front && fringeStrand) len = st.fringeLen * (0.92 + rnd() * 0.16);
       if (p.eyeY !== undefined && p.faceZ !== undefined && front && fringeStrand) {
         len = Math.min(len, Math.max(0.01, (root[1]! - (p.eyeY + 0.03)) / 0.6)); // franja: termina acima da sobrancelha
       }

@@ -98,3 +98,43 @@ describe('mechas', () => {
     expect(up).toBeLessThan(s.strands * 0.05);
   });
 });
+
+describe('franja lida na foto', () => {
+  const base = { hasHair: true, length: 0.03, volume: 1.1, curl: 0, color: '#111111' };
+
+  it('franja de lado joga os fios para o lado em que ela pesa e põe a risca no outro', () => {
+    const esquerda = styleFromDetection({ ...base, fringe: 0.5, fringeSide: 0.7, fringeDepth: 1 })!;
+    const direita = styleFromDetection({ ...base, fringe: 0.5, fringeSide: -0.7, fringeDepth: 1 })!;
+    expect(esquerda.sweep!).toBeLessThan(-0.4); // esquerda da foto = lado −x do modelo
+    expect(direita.sweep!).toBeGreaterThan(0.4);
+    expect(esquerda.fringeLen!).toBeGreaterThan(0.06);
+    expect(esquerda.partX!).toBeGreaterThan(0); // a risca fica do lado oposto
+    expect(direita.partX!).toBeLessThan(0);
+  });
+
+  it('franja central ou ausente não tem lado', () => {
+    expect(styleFromDetection({ ...base, fringe: 0.5, fringeSide: 0.05 })!.sweep).toBeUndefined();
+    const sem = styleFromDetection({ ...base, fringe: 0.05, fringeSide: 0.9 })!;
+    expect(sem.sweep).toBeUndefined();
+    expect(sem.fringeLen).toBeUndefined();
+  });
+
+  it('os fios da franja de lado atravessam a testa para o lado e ficam curtos', () => {
+    // calota: 2 triângulos no alto; os de "frente" (z grande) são franja
+    const pos = [-0.05, 0.1, 0.0, 0.05, 0.1, 0.0, 0.05, 0.1, 0.06, -0.05, 0.1, 0.06];
+    const nor = [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0];
+    const idx = [0, 1, 2, 0, 2, 3];
+    const st = { top: 0.05, side: 0.014, back: 0.012, fringe: 1, curl: 0, puff: 0, sweep: -0.85, fringeLen: 0.06 };
+    const s = buildStrands(pos, nor, idx, [1, 1, 1, 1], { density: 40, length: 0.05, style: st, seed: 3, segments: 6, eyeY: 0.0, faceZ: 0.05 });
+    let towardsNegX = 0;
+    let frontStrands = 0;
+    for (let i = 0; i < s.strands; i++) {
+      const o = i * 6 * 6;
+      if (s.positions[o + 2]! < 0.04 || s.positions[o]! > -0.02) continue; // só os da frente, do lado em que a franja pesa
+      frontStrands++;
+      if (s.positions[o + 5 * 6 + 3]! < s.positions[o]!) towardsNegX++;
+    }
+    expect(frontStrands).toBeGreaterThan(20);
+    expect(towardsNegX).toBeGreaterThan(frontStrands * 0.8);
+  });
+});

@@ -237,3 +237,17 @@ Spec opcional `apps/web/e2e/real-model.spec.ts` (roda só com `REAL_GLB` apontan
 - O cabelo "Longo ondulado com franja" aparece como fios finos de 1 px: parece uma peruca, com alguns fios soltos longe da cabeça.
 - Nuca e pescoço têm uma mancha escura e uma ponta preta no ombro (textura do pescoço), problema antigo, sem relação com o cabelo.
 - Dá para ver fios finos pretos soltos nas têmporas quando a câmera chega perto (zoom nos lábios).
+
+## 21. Franja do cabelo automático (24/11/2026)
+
+**Problema (visto na tela com o rosto real):** a pessoa 1 tem franja de lado (cai sobre o lado esquerdo da testa, a direita fica livre), e o automático saía sem franja.
+
+**Causa:** a leitura olhava só a faixa central da testa (60% da largura), onde a franja de lado quase não aparece (cobertura de 0,7%); toda a testa dava 20%.
+
+**Correção:**
+- **Worker (`hairstyle.py`):** a franja agora é lida na **largura toda** da testa (da raiz até as sobrancelhas). Além da quantidade (`fringe`), grava **para que lado ela pesa** (`fringeSide`: +1 = lado esquerdo da foto) e **até onde desce** (`fringeDepth`). Pessoa 1: franja 0,47, lado +0,69, chega às sobrancelhas; pessoa 2: sem franja.
+- **Simulador:** o lado da foto vira o lado −x do modelo visto de frente. Os fios da franja caem **só no lado em que ela pesa** (no outro lado o cabelo fica penteado para cima/trás), atravessam a testa na diagonal para esse lado, têm comprimento próprio (`fringeLen`, até as sobrancelhas) e a risca fica do lado oposto. Vale também para cabelo médio e comprido lidos da foto. O painel diz "com franja de lado" quando o lado é claro.
+- Testes: worker (franja de lado pesa no lado certo, espelhada inverte, testa limpa não tem franja) e web (sentido do `sweep` e da risca, franja central sem lado, fios da franja indo para o lado). 16 do worker e 84 do web passam.
+- Verificado na tela com o rosto real da pessoa 1: o lado esquerdo da testa fica com o cabelo caindo até perto da sobrancelha e o direito fica livre, como na foto. As duas capturas foram reconstruídas de novo no Supabase com o worker novo.
+
+**Limites:** o lado depende de a foto frontal não estar espelhada em relação ao modelo (confere com a pessoa 1; não há como saber de outra forma); franjas muito finas ou da cor da pele do fundo podem não ser lidas; só duas pessoas foram usadas (uma com franja de lado, uma sem franja).

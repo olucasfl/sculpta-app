@@ -256,3 +256,24 @@ def test_estilo_do_cabelo_lido_na_foto_curto_e_comprido():
     assert short["hasHair"] and long_["hasHair"]
     assert short["length"] < 0.3 < 0.7 < long_["length"]
     assert short["color"] < "#404040"  # cabelo escuro
+
+
+def test_franja_de_lado_pesa_no_lado_certo_e_franja_central_nao_tem_lado():
+    import cv2
+
+    from app.face import hairstyle
+
+    img, lm = _fake_portrait(False)
+    cv2.rectangle(img, (150, 151), (330, 178), (110, 150, 200), -1)  # testa limpa: o cabelo termina na linha da raiz
+    # franja de lado: cabelo desce pela testa só no lado esquerdo da imagem, até as sobrancelhas
+    side = img.copy()
+    cv2.rectangle(side, (165, 151), (235, 203), (25, 25, 30), -1)
+    s = hairstyle.detect_style(side, lm)
+    assert s["fringe"] > 0.2, s
+    assert s["fringeSide"] > 0.4, s  # lado esquerdo da imagem
+    # espelhada: o lado inverte
+    mirrored = hairstyle.detect_style(side[:, ::-1].copy(), lm * np.array([-1, 1]) + np.array([side.shape[1], 0]))
+    assert mirrored["fringeSide"] < -0.4, mirrored
+    # sem cabelo sobre a testa: sem franja e sem lado
+    plain = hairstyle.detect_style(img, lm)
+    assert plain["fringe"] == 0 and plain["fringeSide"] == 0, plain

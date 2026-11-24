@@ -44,6 +44,7 @@ test('modelo real: cabelo automático, perfil, lábios, diferença, cabelo longo
   await page.getByRole('button', { name: 'Comparar' }).click();
   await page.getByRole('group', { name: 'Vistas' }).getByRole('button', { name: '45° esq.' }).click();
   await shot('51-real-45.png', 8_000);
+  if (process.env.REAL_ONLY === 'front') return;
   await page.getByRole('group', { name: 'Vistas' }).getByRole('button', { name: 'Perfil esq.' }).click();
   await shot('52-real-perfil.png', 8_000);
   if (process.env.REAL_ONLY === 'profile') return;

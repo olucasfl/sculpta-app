@@ -14,6 +14,8 @@ export interface DetectedHair {
   length: number;
   fringe: number;
   fringeDepth?: number;
+  /** +1 = a franja pesa no lado esquerdo da foto (lado −x do modelo, visto de frente); −1 = no direito. */
+  fringeSide?: number;
   /** Largura do cabelo no alto da cabeça dividida pela largura do rosto. */
   volume: number;
   curl: number;
@@ -53,6 +55,20 @@ export const HAIR_PRESETS = [
 
 const clamp = (x: number, a: number, b: number) => Math.max(a, Math.min(b, x));
 
+/**
+ * Para onde a franja lida na foto é jogada. A foto mostra o lado esquerdo da imagem como o lado −x do modelo visto de
+ * frente; a franja pesa nesse lado, então os fios vão para −x e a risca fica do lado oposto.
+ */
+function fringeDir(d: DetectedHair): Pick<StrandStyle, 'sweep' | 'fringeLen' | 'part' | 'partX'> {
+  if (d.fringe <= 0.2) return {};
+  const side = clamp(d.fringeSide ?? 0, -1, 1);
+  const sweep = -side * 0.85;
+  const fringeLen = 0.04 + 0.04 * clamp(d.fringeDepth ?? 0.6, 0, 1.2);
+  return Math.abs(sweep) > 0.1
+    ? { sweep, fringeLen, part: 0.5, partX: Math.sign(side) * 0.02 }
+    : { fringeLen };
+}
+
 /** Converte o que foi lido na foto em estilo de fios; `null` quando a foto não mostra cabelo (raspado ou careca). */
 export function styleFromDetection(d: DetectedHair | null | undefined): StrandStyle | null {
   if (!d) return { ...HAIR_PRESETS[0].style }; // modelo antigo, sem leitura: curto e discreto
@@ -67,12 +83,23 @@ export function styleFromDetection(d: DetectedHair | null | undefined): StrandSt
     // curto: laterais e nuca rentes, mais comprimento em cima
     const top = 0.045 + 0.02 * d.fringe + 0.02 * puff;
     // sem franja, o cabelo curto fica penteado para trás; com franja, jogado um pouco para o lado
-    return { top, side: 0.014, back: 0.012, fringe: d.fringe, curl, puff, wave: wave * 0.5, comb: d.fringe < 0.35 ? 0.5 : 0, lift: curl > 0.5 ? 0.3 * puff : 0 };
+    return {
+      top,
+      side: 0.014,
+      back: 0.012,
+      fringe: d.fringe,
+      curl,
+      puff,
+      wave: wave * 0.5,
+      comb: d.fringe < 0.35 ? 0.5 : 0,
+      lift: curl > 0.5 ? 0.3 * puff : 0,
+      ...fringeDir(d),
+    };
   }
   // do olho até o fim do cabelo; a raiz fica ~7 cm acima dos olhos nas laterais
   const side = clamp(0.03 + 0.22 * r, 0.03, 0.42);
   const top = r < 0.6 ? 0.05 + 0.1 * r + 0.03 * puff : side * 0.85;
-  return { top, side, back: side, fringe: d.fringe, curl, puff, wave, part: d.fringe < 0.35 ? 0.7 : 0.3, partX: 0.012 };
+  return { top, side, back: side, fringe: d.fringe, curl, puff, wave, part: d.fringe < 0.35 ? 0.7 : 0.3, partX: 0.012, ...fringeDir(d) };
 }
 
 export function scaleStyle(s: StrandStyle, k: number): StrandStyle {
@@ -91,6 +118,7 @@ export function describeDetection(d: DetectedHair | null | undefined): string {
   if (!d) return 'Esta reconstrução é anterior à leitura do cabelo; refaça a captura para ler o cabelo da foto.';
   if (!d.hasHair) return 'Na foto não apareceu cabelo (raspado ou careca).';
   const len = d.length < 0.12 ? 'curto' : d.length < 0.6 ? 'médio curto' : d.length < 1.2 ? 'na altura do queixo ou um pouco abaixo' : 'comprido';
-  const parts = [`cabelo ${len}`, d.fringe > 0.35 ? 'com franja' : 'sem franja', d.curl > 0.55 ? 'cacheado' : d.curl > 0.3 ? 'ondulado' : 'liso'];
+  const fringeText = d.fringe > 0.35 ? (Math.abs(d.fringeSide ?? 0) > 0.4 ? 'com franja de lado' : 'com franja') : 'sem franja';
+  const parts = [`cabelo ${len}`, fringeText, d.curl > 0.55 ? 'cacheado' : d.curl > 0.3 ? 'ondulado' : 'liso'];
   return `Lido na foto: ${parts.join(', ')}.`;
 }

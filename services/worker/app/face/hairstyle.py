@@ -70,7 +70,7 @@ def detect_style(img: np.ndarray, lm: np.ndarray, debug: dict | None = None) -> 
     y_eye = float((P(EYE_L)[1] + P(EYE_R)[1]) / 2)
     y_brow = float((P(BROW_L)[1] + P(BROW_R)[1]) / 2)
     y_chin = float(P(CHIN)[1])
-    none = dict(hasHair=False, length=0.0, fringe=0.0, fringeDepth=0.0, volume=1.0, curl=0.0, color=None, coherence=1.0)
+    none = dict(hasHair=False, length=0.0, fringe=0.0, fringeDepth=0.0, fringeSide=0.0, volume=1.0, curl=0.0, color=None, coherence=1.0)
     if H < 20 or W < 20:
         return none
 
@@ -119,17 +119,25 @@ def detect_style(img: np.ndarray, lm: np.ndarray, debug: dict | None = None) -> 
             bottom = float(y)
     length = float(np.clip((bottom - y_eye) / H, 0, MAX_LEN_RATIO))
 
-    # franja: cabelo sobre a testa, entre a raiz e as sobrancelhas, na faixa central
+    # franja: cabelo sobre a testa, entre a raiz e as sobrancelhas, na LARGURA toda do rosto (uma franja de lado cobre
+    # só um dos lados, e a faixa central a perdia). O lado mais coberto diz para onde ela é jogada.
     fy0, fy1 = int(y_top), int(max(y_top + 2, y_brow))
-    fx0, fx1 = int(cx - 0.3 * W), int(cx + 0.3 * W)
+    fx0, fx1 = int(cx - 0.5 * W), int(cx + 0.5 * W)
     fr = hair[fy0:fy1, fx0:fx1]
     cov = float(fr.mean()) if fr.size else 0.0
-    fringe = float(np.clip((cov - 0.12) / 0.4, 0, 1))
+    fringe = float(np.clip((cov - 0.06) / 0.3, 0, 1))
     depth = 0.0
-    if fringe > 0:
-        rows = np.nonzero(hair[fy0 : int(y_brow + 0.1 * H), int(cx - 0.15 * W) : int(cx + 0.15 * W)].mean(axis=1) > 0.4)[0]
-        if len(rows):
-            depth = float(np.clip((rows.max() + 1) / max(y_brow - y_top, 1.0), 0, 1.3))
+    side = 0.0  # +1: a franja pesa no lado ESQUERDO da imagem; -1: no direito
+    if fringe > 0 and fr.size:
+        half = fr.shape[1] // 2
+        cl, cr = float(fr[:, :half].mean()), float(fr[:, half:].mean())
+        if fringe > 0.15:
+            side = float(np.clip((cl - cr) / (cl + cr + 1e-6), -1, 1))
+        # profundidade: onde o cabelo chega nas colunas que têm cabelo (1 = nas sobrancelhas)
+        strip = hair[fy0 : int(y_brow + 0.1 * H), fx0:fx1]
+        lows = [np.nonzero(strip[:, c])[0].max() for c in range(strip.shape[1]) if strip[:, c].any()]
+        if lows:
+            depth = float(np.clip((np.percentile(lows, 80) + 1) / max(y_brow - y_top, 1.0), 0, 1.3))
 
     # volume: largura do cabelo no alto da cabeça
     widths = []
@@ -160,6 +168,7 @@ def detect_style(img: np.ndarray, lm: np.ndarray, debug: dict | None = None) -> 
         length=round(length, 3),
         fringe=round(fringe, 3),
         fringeDepth=round(depth, 3),
+        fringeSide=round(side, 3),
         volume=round(volume, 3),
         curl=round(curl, 3),
         color=color,
