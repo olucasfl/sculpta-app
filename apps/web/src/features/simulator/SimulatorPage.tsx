@@ -107,6 +107,14 @@ export function SimulatorPage() {
   /** Painel da direita: um procedimento por vez (aba Procedimento) ou pele, olhos e cabelo (aba Aparência). */
   const [panelTab, setPanelTab] = useState<'procedure' | 'look'>('procedure');
   const [panelOpen, setPanelOpen] = useState(true);
+  /** Telas estreitas (celular e tablet em pé): o painel fica embaixo e cobre a metade de baixo do rosto. */
+  const [stacked, setStacked] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 1023.98px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1023.98px)');
+    const on = () => setStacked(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
   /** Miniaturas das 5 vistas (a simulação como está agora); geradas só com o painel Comparar aberto. */
   const [thumbs, setThumbs] = useState<Partial<Record<ViewName, string>>>({});
   const [curtain, setCurtain] = useState(0.5);
@@ -333,6 +341,7 @@ export function SimulatorPage() {
           view={view}
           viewNonce={viewNonce}
           focus={focus}
+          focusLift={stacked ? 0.14 : 0}
           points={points}
           selectedPointId={selectedPoint}
           placing={placingRegions}
@@ -396,31 +405,31 @@ export function SimulatorPage() {
             setSelectedPoint(null);
             setPlacing(false);
           }}>
-            Restaurar tudo
+            <span className="max-lg:sr-only">Restaurar tudo</span>
           </Button>
           <Button variant="secondary" size="sm" icon={<HistoryIcon className="size-4" aria-hidden />} onClick={() => setVersionsOpen((v) => !v)} aria-pressed={versionsOpen}>
-            Versões
+            <span className="max-lg:sr-only">Versões</span>
           </Button>
           {canWrite && (
             <Button size="sm" icon={<Save className="size-4" aria-hidden />} onClick={() => setSaving(true)}>
-              Salvar
+              <span className="max-lg:sr-only">Salvar</span>
             </Button>
           )}
           {can(role, 'simulations.export') && (
             <Button size="sm" variant="secondary" icon={<Download className="size-4" aria-hidden />} onClick={() => setExporting(true)}>
-              Exportar
+              <span className="max-lg:sr-only">Exportar</span>
             </Button>
           )}
           {can(role, 'reports.generate') && (
             <Button size="sm" variant="secondary" icon={<FileText className="size-4" aria-hidden />} loading={reporting} onClick={downloadReport}>
-              Relatório PDF
+              <span className="max-lg:sr-only">Relatório PDF</span>
             </Button>
           )}
         </div>
       </div>
 
       {/* Procedimentos: faixa à esquerda, junto do rosto */}
-      <ul className={cn(GLASS, 'absolute left-3 top-24 z-20 flex flex-col gap-1 p-1.5 max-md:inset-x-3 max-md:top-[4.75rem] max-md:flex-row max-md:overflow-x-auto')}>
+      <ul className={cn(GLASS, 'absolute left-3 top-24 z-20 flex flex-col gap-1 p-1.5 lg:top-[8.5rem] xl:top-24 max-lg:inset-x-3 max-lg:top-[10.25rem] max-lg:flex-row max-lg:overflow-x-auto')}>
         {PROCEDURE_PRESETS.map((p) => {
           const changed = SLIDERS.some((x) => (p.sliders as readonly string[]).includes(x.id) && (history.live[x.id] ?? 0) !== 0);
           return (
@@ -454,13 +463,13 @@ export function SimulatorPage() {
           type="button"
           onClick={() => setPanelOpen(true)}
           aria-label="Mostrar o painel"
-          className={cn(GLASS, 'absolute right-3 top-24 z-20 inline-flex min-h-11 items-center gap-1.5 px-3 text-sm font-medium max-md:bottom-24 max-md:top-auto')}
+          className={cn(GLASS, 'absolute right-3 top-24 z-20 inline-flex min-h-11 items-center gap-1.5 px-3 text-sm font-medium lg:top-[8.5rem] xl:top-24 max-lg:bottom-[8.25rem] max-sm:bottom-[14rem] max-lg:top-auto')}
         >
           <PanelRightOpen className="size-4" aria-hidden /> Painel
         </button>
       )}
       {panelOpen && (
-        <div className={cn(GLASS, 'absolute right-3 top-24 z-20 max-h-[calc(100%-10.5rem)] w-72 overflow-y-auto p-4 max-md:inset-x-3 max-md:bottom-24 max-md:top-auto max-md:max-h-[38%] max-md:w-auto')}>
+        <div className={cn(GLASS, 'absolute right-3 top-24 z-20 max-h-[calc(100%-14.5rem)] w-72 overflow-y-auto p-4 lg:top-[8.5rem] xl:top-24 xl:max-h-[calc(100%-10.5rem)] max-lg:inset-x-3 max-lg:bottom-[8.25rem] max-sm:bottom-[14rem] max-lg:top-auto max-lg:max-h-[34%] max-lg:w-auto')}>
           <div className="mb-3 flex items-center gap-1">
             <div role="tablist" aria-label="Painel" className="flex flex-1 gap-1 rounded-lg bg-subtle p-0.5">
               {(
@@ -547,7 +556,7 @@ export function SimulatorPage() {
       )}
 
       {versionsOpen && (
-        <div className="absolute right-3 top-16 z-30 w-80 max-md:inset-x-3 max-md:w-auto">
+        <div className="absolute right-3 top-16 z-30 w-80 max-lg:inset-x-3 max-lg:w-auto">
           <VersionsCard
             versions={s.versions}
             onLoad={(v) => {
@@ -582,7 +591,7 @@ export function SimulatorPage() {
       )}
 
       {compareOpen && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-24 z-30 flex justify-center px-3">
+        <div className="pointer-events-none absolute inset-x-0 bottom-[8.25rem] z-30 flex justify-center px-3 max-lg:bottom-[8.25rem] max-sm:bottom-[14rem]">
           <ComparePanel
             mode={cmpMode}
             onMode={selectCompare}

@@ -210,3 +210,16 @@ Um painel "Comparar" com: **Cortina**, **Alternar** (segurar para ver o antes), 
 - 81 testes do web, 12 da API (relatório e produto) e o e2e do simulador passam; o e2e passou a usar as abas.
 
 **Limites:** o PDF usa mm de um rosto médio (a medida real de cada rosto está no modelo, mas a API não a lê); a aba Aparência do modelo reconstruído só tem o cabelo (pele e olhos vêm das fotos); em tablet na vertical o painel ocupa a parte de baixo e pode ser recolhido, mas não testei num tablet de verdade; testa, glabela e pés de galinha seguem fora; a faixa de resultado no PDF depende de validação clínica.
+
+## 19. Revisão final das 7 etapas (24/11/2026)
+
+**Suítes:** API 92 testes, web 81, worker 15, contratos 14, face-assets 8; e2e do simulador no desktop (4), tablet em pé, tablet deitado e iPhone (teste novo de layout).
+
+**O que a revisão achou e corrigiu**
+- **Telas estreitas:** em tablet em pé (768 px) a lista de procedimentos e o painel cobriam a barra de ações, e no celular o painel e o painel Comparar ficavam atrás da barra de baixo (o botão "Painel" ficava inclicável). Agora, abaixo de 1024 px: barra de ações só com ícones, procedimentos em faixa horizontal no alto, painel embaixo (recolhível) acima da barra de ferramentas, painel Comparar acima da barra, e **o zoom na zona sobe a zona na tela** para não ficar atrás do painel. Entre 1024 e 1280 px as colunas começam mais abaixo porque a barra de ações quebra em duas linhas.
+- Valores dos controles ("sem alteração", "3,5 mm") não quebram mais em duas linhas; o painel Comparar não cobre mais a barra de baixo no desktop.
+- **Teste novo** (`simulador em tablet e celular`): sem rolagem lateral, alvo de toque de pelo menos 40 px, abas, painel Comparar dentro da largura, recolher e mostrar o painel; capturas em `e2e/screenshots/<viewport>/40` a `43`.
+
+**Não verificado (a registrar):** nenhum teste num tablet ou celular de verdade (só emulação do navegador, com 3D por software); modelo reconstruído real na tela completa do simulador (as capturas completas são do modelo demonstrativo, que o seed do e2e usa; o modelo real foi visto em páginas de teste); o pincel com o mouse sobre o rosto real; o PDF renderizado (só gerado e testado); a pessoa 1 continua com o modelo demonstrativo até a captura ser refeita.
+**Dependem de profissional habilitado:** tetos em mm, formatos prontos, procedimentos de toxina e a faixa de resultado do relatório.
+**Achado fora do escopo:** no modelo demonstrativo a cor de olhos escolhida (azul) não aparece no olho (esfera branca com anel cinza); não investigado.

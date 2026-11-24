@@ -40,7 +40,7 @@ export function SliderControl({ label, value, min, maxMm, onChange, onCommit, on
         <label htmlFor={id} className="text-sm font-medium">
           {label}
         </label>
-        <output htmlFor={id} className={near ? 'text-sm font-semibold tabular-nums text-amber-700' : 'text-sm tabular-nums text-ink'}>
+        <output htmlFor={id} className={near ? 'whitespace-nowrap text-sm font-semibold tabular-nums text-amber-700' : 'whitespace-nowrap text-sm tabular-nums text-ink'}>
           {maxMm ? mmText(value * maxMm, min < 0) : `${Math.round(Math.abs(value) * 100)}%`}
         </output>
       </div>

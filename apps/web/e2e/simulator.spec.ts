@@ -175,3 +175,42 @@ test('captura guiada: 9 vistas (5 obrigatórias), abas câmera/arquivo/vídeo e 
   mkdirSync(dir, { recursive: true });
   await page.screenshot({ path: join(dir, '40-captura-9-vistas.png') });
 });
+
+test('simulador em tablet e celular: sem rolagem lateral, painel e comparação cabem na tela', async ({ page }, info) => {
+  test.skip(info.project.name === 'desktop-1440x900', 'o desktop tem os fluxos completos acima');
+  test.setTimeout(300_000); // 3D por software no celular é lento
+  await openSimulator(page);
+  const vw = page.viewportSize()!.width;
+  const dir = join('e2e', 'screenshots', info.project.name);
+  mkdirSync(dir, { recursive: true });
+  const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(await overflow()).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: join(dir, '40-simulador.png') });
+
+  // a lista de procedimentos e as abas respondem ao toque e têm alvos de pelo menos 40 px
+  const nose = page.getByRole('button', { name: 'Nariz', exact: true });
+  const box = (await nose.boundingBox())!;
+  expect(box.height).toBeGreaterThanOrEqual(40);
+  await nose.click();
+  await page.waitForTimeout(4_000); // a câmera enquadra a zona do nariz
+  await page.screenshot({ path: join(dir, '43-simulador-zona.png') });
+  await page.getByRole('tab', { name: 'Aparência' }).click();
+  await expect(page.getByRole('tabpanel', { name: 'Aparência' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Procedimento' }).click();
+
+  // o painel Comparar cabe na largura da tela
+  await page.getByRole('button', { name: 'Comparar' }).click();
+  const panel = (await page.getByRole('region', { name: 'Comparar' }).boundingBox())!;
+  expect(panel.x).toBeGreaterThanOrEqual(-1);
+  expect(panel.x + panel.width).toBeLessThanOrEqual(vw + 1);
+  expect(await overflow()).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: join(dir, '41-simulador-comparar.png') });
+  await page.getByRole('button', { name: 'Fechar comparação' }).click();
+
+  // recolher o painel libera o rosto; o botão "Painel" traz de volta
+  await page.getByRole('button', { name: 'Recolher o painel' }).click();
+  await expect(page.getByRole('tablist', { name: 'Painel' })).toHaveCount(0);
+  await page.screenshot({ path: join(dir, '42-simulador-painel-recolhido.png') });
+  await page.getByRole('button', { name: 'Mostrar o painel' }).click();
+  await expect(page.getByRole('tablist', { name: 'Painel' })).toBeVisible();
+});

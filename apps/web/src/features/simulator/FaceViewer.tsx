@@ -88,6 +88,8 @@ interface Props {
   viewNonce: number;
   /** Zona do procedimento escolhido: a câmera se aproxima dela (muda a cada escolha, mesmo repetida). */
   focus?: { regions: FaceRegion[]; nonce: number } | null;
+  /** Fração da altura da tela em que a zona sobe acima do centro (telas com painel embaixo). */
+  focusLift?: number;
   /** Pontos de aplicação (cada um vira um volume suave dentro da zona do procedimento). */
   points?: AppPoint[];
   selectedPointId?: string | null;
@@ -803,6 +805,7 @@ function Rig({
   view,
   viewNonce,
   focus,
+  focusLift,
   shared,
   api,
 }: Props & { shared: React.RefObject<Shared>; api: React.RefObject<Pick<ViewerHandle, 'snapshot'> | null> }) {
@@ -828,10 +831,12 @@ function Rig({
     const zone = zoneBounds(g.getAttribute('position').array as ArrayLike<number>, weights);
     if (!zone) return;
     const center = mesh.localToWorld(new THREE.Vector3(...zone.center));
+    const dist = distanceForZone(zone.radius);
+    center.y -= (focusLift ?? 0) * 2 * dist * Math.tan((15 * Math.PI) / 180); // alvo mais baixo = zona mais alta na tela
     const offset = camera.position.clone().sub(c.target);
     goal.current = {
       az: new THREE.Spherical().setFromVector3(offset).theta,
-      dist: distanceForZone(zone.radius),
+      dist,
       target: center,
     };
     invalidate();
